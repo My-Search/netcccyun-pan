@@ -2,6 +2,8 @@
 
 彩虹外链网盘，是一款PHP网盘与外链分享程序，支持所有格式文件的上传，可以生成文件外链、图片外链、音乐视频外链，生成外链同时自动生成相应的UBB代码和HTML代码，还可支持文本、图片、音乐、视频在线预览，这不仅仅是一个网盘，更是一个图床亦或是音乐在线试听网站。新版本支持对接阿里云OSS、腾讯云COS、华为云OBS、又拍云、七牛云等云存储，同时增加了图片违规检测功能。
 
+当前仓库修改自：https://github.com/netcccyun/pan，感谢开源
+
 ### 更新日志
 
 [CHANGELOG](./CHANGELOG.md)
@@ -103,7 +105,4 @@ docker-compose down -v
 **自定义端口**
 如需修改映射端口，编辑 `docker-compose.yml` 中 `app` 服务的 `ports` 配置，例如改为 `8080:80`。
 
-### 官方网站
 
-- https://pan.cccyun.cc/
-- https://blog.cccyun.cn/
