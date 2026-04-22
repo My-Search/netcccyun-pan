@@ -113,6 +113,15 @@ function resolveUploadPath($relativePath, $baseFolderId, $uid, $DB){
 	return ['folder_id'=>$currentFolderId, 'name'=>$fileName, 'error'=>null];
 }
 
+function getSubFolderIds($parentId, $uid, $DB){
+	$ids = [$parentId];
+	$children = $DB->getAll("SELECT id FROM pre_folder WHERE parent_id=:parent_id AND uid=:uid", [':parent_id'=>$parentId, ':uid'=>$uid]);
+	foreach($children as $child){
+		$ids = array_merge($ids, getSubFolderIds($child['id'], $uid, $DB));
+	}
+	return $ids;
+}
+
 switch($act){
 case 'pre_upload':
 	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
@@ -439,11 +448,28 @@ case 'deleteFolder':
 	if($id<=0)exit('{"code":-1,"msg":"参数错误"}');
 	$row = $DB->getRow("SELECT * FROM pre_folder WHERE id=:id AND uid=:uid", [':id'=>$id, ':uid'=>$uid]);
 	if(!$row)exit('{"code":-1,"msg":"目录不存在"}');
-	$files = $DB->getColumn("SELECT count(*) FROM pre_file WHERE folder_id=:folder_id", [':folder_id'=>$id]);
-	if($files>0)exit('{"code":-1,"msg":"目录下存在文件，请先移出文件后再删除"}');
-	$sub = $DB->getColumn("SELECT count(*) FROM pre_folder WHERE parent_id=:parent_id", [':parent_id'=>$id]);
-	if($sub>0)exit('{"code":-1,"msg":"目录下存在子目录，请先删除子目录"}');
-	$DB->delete('folder', ['id'=>$id]);
+
+	$folderIds = getSubFolderIds($id, $uid, $DB);
+
+	// 删除这些目录下的所有文件
+	if(count($folderIds) > 0){
+		$placeholders = implode(',', array_fill(0, count($folderIds), '?'));
+		$files = $DB->getAll("SELECT id, hash FROM pre_file WHERE folder_id IN ($placeholders) AND uid=?", array_merge($folderIds, [$uid]));
+		foreach($files as $file){
+			$DB->exec("DELETE FROM pre_file WHERE id=?", [$file['id']]);
+			$refCount = $DB->getColumn("SELECT count(*) FROM pre_file WHERE hash=?", [$file['hash']]);
+			if(intval($refCount) === 0){
+				$stor->delete($file['hash']);
+			}
+		}
+	}
+
+	// 删除所有目录记录（从最深的子目录开始）
+	rsort($folderIds);
+	foreach($folderIds as $fid){
+		$DB->exec("DELETE FROM pre_folder WHERE id=?", [$fid]);
+	}
+
 	exit(json_encode(['code'=>0, 'msg'=>'删除成功']));
 break;
 
