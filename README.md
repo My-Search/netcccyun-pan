@@ -1,110 +1,87 @@
-# 彩虹外链网盘
-<img width="2534" height="1182" alt="image" src="https://github.com/user-attachments/assets/c68964b4-c21d-4b2c-92d9-d9cef051c316" />
+# 🌈 彩虹外链网盘 (Rainbow Cloud Storage)
 
+**彩虹外链网盘** 是一款功能强大的 PHP 网盘与外链分享系统。它不仅是一个高兼容性的文件存储器，更是集 **图床、音乐播放、视频试听** 为一体的综合多媒体分发平台。
 
-**彩虹外链网盘，是一款PHP网盘与外链分享程序，支持所有格式文件的上传，可以生成文件外链、图片外链、音乐视频外链，生成外链同时自动生成相应的UBB代码和HTML代码，还可支持文本、图片、音乐、视频在线预览，这不仅仅是一个网盘，更是一个图床亦或是音乐在线试听网站。新版本支持对接阿里云OSS、腾讯云COS、华为云OBS、又拍云、七牛云等云存储，同时增加了图片违规检测功能。**
+### ✨ 核心特性
 
-当前仓库修改自：https://github.com/netcccyun/pan 感谢开源
+  * **全格式支持**：支持任意格式文件上传及外链生成。
+  * **代码自动生成**：自动生成 UBB、HTML 等引用代码，方便直接插入论坛或网页。
+  * **在线预览**：支持文本、图片、音乐、视频的实时在线预览。
+  * **云存储对接**：完美适配阿里云 OSS、腾讯云 COS、华为云 OBS、又拍云、七牛云等。
+  * **内容安全**：内置图片违规检测功能，保障存储内容的合规性。
 
-### 更新日志
+> [\!TIP]
+> 本仓库基于开源项目 [netcccyun/pan](https://github.com/netcccyun/pan) 进行二次开发与优化，感谢原作者的无私奉献。
 
-[CHANGELOG](./CHANGELOG.md)
+-----
 
+### 📅 更新日志
 
-### 演示地址
-- https://cccimg.com/
+详细版本演进请查看：[CHANGELOG.md](https://www.google.com/search?q=./CHANGELOG.md)
 
-### 部署方法
+-----
 
-#### 方法一：传统部署
+### 🚀 部署指南
 
-- 环境要求`PHP` >= 7.1、`MySQL` >= 5.5
-- 上传后直接访问，按照提示安装
-- 后台默认账号密码：admin/123456
+#### 方案一：Docker 部署（推荐）
 
-#### 方法二：Docker 部署（推荐）
+本项目已内置 `Dockerfile` 与 `docker-compose.yml`，支持一键实现 PHP + Apache 环境容器化。
 
-本项目已内置 `Dockerfile` 和 `docker-compose.yml`，可快速启动 PHP + Apache 环境。
+**1. 克隆仓库**
 
-**1. 克隆项目并进入目录**
 ```bash
 git clone https://github.com/netcccyun/pan.git
 cd pan
 ```
 
-**2. 启动容器**
+**2. 启动服务**
+
 ```bash
+# 方式 A：仅启动应用（连接外部数据库）
+docker-compose up -d
+
+# 方式 B：完全体启动（包含内置 MySQL 容器）
+# 请先编辑 docker-compose.yml，取消 db 服务相关注释
 docker-compose up -d
 ```
 
-默认仅启动 PHP 应用容器，数据库需自行准备（本地 MySQL、云数据库等）。
+**3. 执行安装**
+访问 `http://localhost:5858/install/`，按照页面引导完成初始化。
 
-**3. 访问安装向导**
-打开浏览器访问 `http://localhost:5858/install/`，按提示完成安装。
+| 内置 MySQL 配置项 | 默认值 |
+| :--- | :--- |
+| **数据库地址** | `db` (容器内互联名) |
+| **数据库端口** | `3306` |
+| **数据库名** | `cccpan` |
+| **用户名** | `cccpan` |
+| **密码** | `cccpan_123` |
 
-安装时数据库配置填写你自己的数据库信息即可。
+-----
 
----
+#### 方案二：传统环境部署
 
-**（可选）使用 Docker 内置 MySQL**
+  * **环境要求**：`PHP` \>= 7.1 / `MySQL` \>= 5.5
+  * **安装步骤**：
+    1.  将源码上传至 Web 根目录。
+    2.  设置网站运行目录为程序所在目录。
+    3.  直接访问域名，进入安装向导。
+  * **初始凭据**：
+      * 后台地址：`/admin`
+      * 默认账号：`admin`
+      * 默认密码：`123456`
 
-如果你希望一并启动 MySQL 容器，编辑 `docker-compose.yml`，取消 `db` 服务及相关注释：
+-----
 
-```yaml
-services:
-  db:
-    image: mysql:5.7
-    ...
+### 🛠️ 运维与配置
 
-  app:
-    ...
-    depends_on:
-      - db
+#### 目录挂载与持久化
 
-volumes:
-  db_data:
-```
+  * `./` → `/var/www/html`：代码挂载，支持实时修改。
+  * `./assets/avatars`：持久化存储用户头像。
+  * **自定义端口**：如需修改端口，请编辑 `docker-compose.yml` 中的 `ports` 段（例如 `8080:80`）。
 
-然后重新启动：
-```bash
-docker-compose down
-docker-compose up -d
-```
+-----
 
-内置 MySQL 默认配置：
-| 配置项 | 值 |
-|---|---|
-| 数据库地址 | `db`（容器内服务名） |
-| 数据库端口 | `3306` |
-| 数据库名 | `cccpan` |
-| 用户名 | `cccpan` |
-| 密码 | `cccpan_123` |
+### 📜 开源协议
 
----
-
-**常用命令**
-```bash
-# 查看运行状态
-docker-compose ps
-
-# 查看应用日志
-docker-compose logs -f app
-
-# 重启服务
-docker-compose restart
-
-# 停止并移除容器
-docker-compose down
-
-# 停止并移除容器及数据卷（会清空数据库）
-docker-compose down -v
-```
-
-**目录挂载说明**
-- `./` → `/var/www/html`：代码实时同步，本地修改立即生效
-- `./assets/avatars` → `/var/www/html/assets/avatars`：头像文件持久化
-
-**自定义端口**
-如需修改映射端口，编辑 `docker-compose.yml` 中 `app` 服务的 `ports` 配置，例如改为 `8080:80`。
-
-
+本项目遵循原作者的开源协议，请在遵守相关法律法规的前提下使用。
