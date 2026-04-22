@@ -49,12 +49,6 @@ if($islogin==1){}else exit("<script language='javascript'>window.location.href='
 						</div>
 					</div>
 					<div class="form-group">
-						<label class="col-sm-2 control-label no-padding-right">是否隐藏</label>
-						<div class="col-sm-10">
-							<select id="hide" name="hide" class="form-control"><option value="0">0_否</option><option value="1">1_是</option></select>
-						</div>
-					</div>
-					<div class="form-group">
 						<label class="col-sm-2 control-label no-padding-right">开启密码</label>
 						<div class="col-sm-10">
 							<select id="ispwd" name="ispwd" class="form-control" onchange="change_ispwd(this)"><option value="0">0_否</option><option value="1">1_是</option></select>
@@ -242,7 +236,6 @@ function editframe(id){
 				$("#form-store #type").val(data.type);
 				$("#form-store #size").val(data.size2+" ("+data.size+" 字节)");
 				$("#form-store #hash").val(data.hash);
-				$("#form-store #hide").val(data.hide);
 				if(data.pwd==null||data.pwd==""){
 					$("#form-store #ispwd").val(0);
 					$("#form-store #pwd").val("");

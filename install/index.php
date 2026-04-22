@@ -111,6 +111,18 @@ if($step==3){
                     $success++;
                 }
             }
+            // 创建默认管理员前台账号
+            if(empty($errorMsg)){
+                $admin_user = $DB->query("SELECT v FROM pre_config WHERE k='admin_user'")->fetchColumn();
+                $admin_pwd = $DB->query("SELECT v FROM pre_config WHERE k='admin_pwd'")->fetchColumn();
+                if($admin_user && $admin_pwd){
+                    $exists = $DB->query("SELECT uid FROM pre_user WHERE type='local' AND username='".addslashes($admin_user)."'")->fetchColumn();
+                    if(!$exists){
+                        $hash = password_hash($admin_pwd, PASSWORD_DEFAULT);
+                        $DB->exec("INSERT INTO pre_user (type, openid, username, password, nickname, enable, level, addtime, lasttime) VALUES ('local', '".addslashes($admin_user)."', '".addslashes($admin_user)."', '".addslashes($hash)."', '管理员', 1, 1, NOW(), NOW())");
+                    }
+                }
+            }
         }
         if(empty($errorMsg)){
             $lock_status = file_put_contents("install.lock",'安装锁');
@@ -227,8 +239,9 @@ if(!empty($errorMsg)){
                     <ul class="list-group">
                         <li class="list-group-item">1、系统已成功安装完毕！</li>
                         <li class="list-group-item">2、后台地址：<a href="../admin/" target="_blank">/admin/</a> 密码:123456</li>
-                        <li class="list-group-item">3、请及时修改后台管理员密码！</li>
-                        <?php if(!$lock_status){?><li class="list-group-item">4、<font color="#FF0033">你的空间不支持本地文件读写，请自行在 /install/ 目录建立 install.lock 文件！</font></li><?php }?>
+                        <li class="list-group-item">3、前台管理员账号：用户名 admin 密码 123456（与后台账号一致，可直接登录使用）</li>
+                        <li class="list-group-item">4、请及时修改后台管理员密码！</li>
+                        <?php if(!$lock_status){?><li class="list-group-item">5、<font color="#FF0033">你的空间不支持本地文件读写，请自行在 /install/ 目录建立 install.lock 文件！</font></li><?php }?>
                         <li class="list-group-item"><a href="../" class="btn btn-block btn-default">进入网站首页</a></li>
                     </ul>
                 </div>

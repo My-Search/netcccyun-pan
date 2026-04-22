@@ -42,7 +42,7 @@ case 'iptype':
 break;
 case 'userList':
 	$sql=" 1=1";
-	$type_arr = ['qq'=>'QQ','wx'=>'微信'];
+	$type_arr = ['qq'=>'QQ','wx'=>'微信','local'=>'账号'];
 	if(isset($_POST['dstatus']) && $_POST['dstatus']>-1) {
 		$dstatus = intval($_POST['dstatus']);
 		$sql.=" AND `enable`={$dstatus}";
@@ -55,7 +55,7 @@ case 'userList':
 		}elseif($type == 2){
 			$sql.=" AND `openid`='{$kw}'";
 		}elseif($type == 3){
-			$sql.=" AND `nickname` LIKE '%{$kw}%'";
+			$sql.=" AND (`nickname` LIKE '%{$kw}%' OR `username` LIKE '%{$kw}%')";
 		}elseif($type == 4){
 			$sql.=" AND `loginip`='{$kw}'";
 		}
@@ -66,7 +66,13 @@ case 'userList':
 	$list = $DB->getAll("SELECT * FROM pre_user WHERE{$sql} order by uid desc limit $offset,$limit");
 	$list2 = [];
 	foreach($list as $row){
-		$row['type'] = $type_arr[$row['type']];
+		$row['type'] = isset($type_arr[$row['type']]) ? $type_arr[$row['type']] : $row['type'];
+		if($row['type'] == '账号'){
+			$row['faceimg'] = $row['faceimg'] ? $row['faceimg'] : 'https://s4.zstatic.net/ajax/libs/AdminLTE/2.4.18/img/avatar.png';
+			if(empty($row['openid'])) $row['openid'] = $row['username'] ? $row['username'] : '-';
+		}
+		// 统计已用容量
+		$row['used_storage'] = $DB->getColumn("SELECT COALESCE(SUM(size), 0) FROM pre_file WHERE uid=:uid", [':uid'=>$row['uid']]);
 		$list2[] = $row;
 	}
 
@@ -82,7 +88,9 @@ break;
 case 'saveUserInfo':
 	$uid=intval($_POST['uid']);
 	$level=intval($_POST['level']);
-	$sql = "UPDATE pre_user SET level='$level' WHERE uid='$uid'";
+	$storage_limit = isset($_POST['storage_limit']) ? floatval($_POST['storage_limit']) : 0;
+	$storageLimitBytes = $storage_limit > 0 ? intval($storage_limit * 1024 * 1024 * 1024) : 0;
+	$sql = "UPDATE pre_user SET level='$level', storage_limit='$storageLimitBytes' WHERE uid='$uid'";
 	if($DB->exec($sql)!==false)exit('{"code":0,"msg":"修改用户成功！"}');
 	else exit('{"code":-1,"msg":"修改用户失败['.$DB->error().']"}');
 break;

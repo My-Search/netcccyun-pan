@@ -112,7 +112,6 @@ case 'saveFileInfo':
 	$id = intval($_POST['id']);
 	$name = trim(htmlspecialchars($_POST['name']));
 	$type = trim(htmlspecialchars($_POST['type']));
-	$hide = intval($_POST['hide']);
 	$ispwd = intval($_POST['ispwd']);
 	$pwd = $ispwd==1?trim(htmlspecialchars($_POST['pwd'])):null;
 	if(empty($name))exit('{"code":-1,"msg":"文件名称不能为空"}');
@@ -121,8 +120,8 @@ case 'saveFileInfo':
 			exit('{"code":-1,"msg":"下载密码只能为字母和数字"}');
         }
 	}
-	$data = [':id'=>$id, ':name'=>$name, ':type'=>$type, ':hide'=>$hide, ':pwd'=>$pwd];
-	$sql = "UPDATE `pre_file` SET `name`=:name,`type`=:type,`hide`=:hide,`pwd`=:pwd WHERE `id`=:id";
+	$data = [':id'=>$id, ':name'=>$name, ':type'=>$type, ':pwd'=>$pwd];
+	$sql = "UPDATE `pre_file` SET `name`=:name,`type`=:type,`pwd`=:pwd WHERE `id`=:id";
 	if($DB->exec($sql, $data)!==false)exit('{"code":0,"msg":"修改文件信息成功！"}');
 	else exit('{"code":-1,"msg":"修改文件信息失败['.$DB->error().']"}');
 break;

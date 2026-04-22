@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="assets/codemirror/codemirror.min.css">
+<style>
+  body { margin: 0; padding: 15px; background: #fff; font-family: "Microsoft YaHei", sans-serif; }
+  .CodeMirror { height: 380px; border: 1px solid #ddd; border-radius: 4px; font-family: Consolas,Monaco,monospace; font-size: 13px; }
+  .btn { display: inline-block; padding: 6px 12px; margin-bottom: 0; font-size: 14px; font-weight: 400; line-height: 1.42857143; text-align: center; white-space: nowrap; vertical-align: middle; touch-action: manipulation; cursor: pointer; user-select: none; background-image: none; border: 1px solid transparent; border-radius: 4px; }
+  .btn-primary { color: #fff; background-color: #337ab7; border-color: #2e6da4; }
+  .btn-default { color: #333; background-color: #fff; border-color: #ccc; }
+</style>
+<script src="assets/codemirror/codemirror.min.js"></script>
+<script src="assets/codemirror/mode/javascript/javascript.min.js"></script>
+<script src="assets/codemirror/mode/css/css.min.js"></script>
+<script src="assets/codemirror/mode/xml/xml.min.js"></script>
+<script src="assets/codemirror/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="assets/codemirror/mode/clike/clike.min.js"></script>
+<script src="assets/codemirror/mode/php/php.min.js"></script>
+<script src="assets/codemirror/mode/python/python.min.js"></script>
+<script src="assets/codemirror/mode/go/go.min.js"></script>
+<script src="assets/codemirror/mode/sql/sql.min.js"></script>
+<script src="assets/codemirror/mode/shell/shell.min.js"></script>
+<script src="assets/codemirror/mode/markdown/markdown.min.js"></script>
+<script src="assets/codemirror/mode/yaml/yaml.min.js"></script>
+<script src="assets/codemirror/mode/lua/lua.min.js"></script>
+<script src="assets/codemirror/mode/ruby/ruby.min.js"></script>
+<script src="assets/codemirror/mode/perl/perl.min.js"></script>
+</head>
+<body>
+  <textarea id="textEditor"></textarea>
+  <div style="margin-top: 10px; text-align: right;">
+    <button type="button" class="btn btn-primary" id="saveBtn">保存</button>
+    <button type="button" class="btn btn-default" id="cancelBtn">取消</button>
+  </div>
+  <script>
+    var cmEditor = null;
+    var currentHash = '';
+    var cmModeMap = {
+        'js':'javascript','ts':'javascript','tsx':'javascript','jsx':'javascript','json':'javascript',
+        'css':'css','html':'htmlmixed','htm':'htmlmixed','vue':'htmlmixed',
+        'xml':'xml','php':'php','py':'python','java':'text/x-java',
+        'go':'go','c':'text/x-c','cpp':'text/x-c++src','h':'text/x-c++src',
+        'sql':'sql','sh':'shell','bat':'shell',
+        'md':'markdown','yaml':'yaml','yml':'yaml',
+        'lua':'lua','rb':'ruby','pl':'perl'
+    };
+
+    window.addEventListener('message', function(e) {
+      var mode = '';
+      if(e.data.action === 'init') {
+        currentHash = e.data.hash;
+        mode = e.data.mode || '';
+        cmEditor = CodeMirror.fromTextArea(document.getElementById('textEditor'), {
+          mode: mode,
+          lineNumbers: true,
+          indentUnit: 4,
+          tabSize: 4,
+          lineWrapping: true,
+          extraKeys: {
+            'Tab': function(cm){
+              if(cm.somethingSelected()){
+                cm.indentSelection('add');
+              }else{
+                cm.replaceSelection('    ', 'end');
+              }
+            },
+            'Ctrl-S': function(cm){
+              window.parent.postMessage({action:'save', hash:currentHash, content:cmEditor.getValue()}, '*');
+            }
+          }
+        });
+        cmEditor.setValue(e.data.content || '');
+        cmEditor.refresh();
+        cmEditor.focus();
+      }
+    });
+
+    document.getElementById('saveBtn').addEventListener('click', function(){
+      window.parent.postMessage({action:'save', hash:currentHash, content:cmEditor.getValue()}, '*');
+    });
+
+    document.getElementById('cancelBtn').addEventListener('click', function(){
+      window.parent.postMessage({action:'cancel'}, '*');
+    });
+  </script>
+</body>
+</html>

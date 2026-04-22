@@ -17,7 +17,6 @@ new Vue({
         uploadspeed: '',
         input: {
             csrf_token:'',
-            show: true,
             ispwd: false,
             pwd: '',
             hash: '',
@@ -117,6 +116,15 @@ new Vue({
             await this.getFileHash(file).then(res =>{
                 that.input.hash = res;
             })
+
+            // 获取用户容量信息并校验
+            var storageCheck = await this.checkStorage(file.size);
+            if(!storageCheck.ok){
+                layer.close(loading);
+                layer.alert(storageCheck.msg, {icon:2});
+                return;
+            }
+
             var result = {}
             await this.preUpload().then(res =>{
                 result = res
@@ -177,13 +185,43 @@ new Vue({
             }
             this.uploadSuccess(result.hash);
         },
+        async checkStorage(fileSize){ //检查用户容量是否足够
+            var that = this;
+            // 未登录用户不检查
+            if(typeof islogin2 === 'undefined' || !islogin2){
+                return {ok: true};
+            }
+            return new Promise((resolve) => {
+                $.ajax({
+                    type: 'GET',
+                    url: 'ajax.php?act=getUserStorage',
+                    dataType: 'json',
+                    success: function(data) {
+                        if(data.code == 0 && data.data.limit > 0){
+                            var limit = data.data.limit;
+                            var used = data.data.used;
+                            if(used + fileSize > limit){
+                                var msg = '您的存储空间不足（已用 ' + data.data.usedFormatted + ' / 总共 ' + data.data.limitFormatted + '），无法上传该文件';
+                                resolve({ok: false, msg: msg});
+                            }else{
+                                resolve({ok: true});
+                            }
+                        }else{
+                            resolve({ok: true});
+                        }
+                    },
+                    error: function(){
+                        resolve({ok: true}); // 获取失败时不阻止上传
+                    }
+                });
+            });
+        },
         async preUpload(){ //文件预上传，极速秒传查询
             var postData = {
                 csrf_token: this.input.csrf_token,
                 name: this.input.name,
                 hash: this.input.hash,
                 size: this.input.size,
-                show: this.input.show?'1':'0',
                 ispwd: this.input.ispwd?'1':'0',
                 pwd: this.input.pwd,
             };
@@ -201,9 +239,12 @@ new Vue({
                             reject(data.msg);
                         }
                     },
-                    error:function(){
-                        layer.msg('服务器错误');
-                        reject('上传失败，请稍后再试或联系站长');
+                    error:function(xhr){
+                        var msg = '预上传请求失败';
+                        if(xhr.status === 0) msg = '网络连接失败，请检查网络';
+                        else if(xhr.status >= 500) msg = '服务器错误('+xhr.status+')';
+                        layer.msg(msg);
+                        reject(msg);
                     }
                 });
             })
@@ -223,9 +264,12 @@ new Vue({
                             reject(data.msg);
                         }
                     },
-                    error:function(){
-                        layer.msg('服务器错误');
-                        reject('上传失败，请稍后再试或联系站长');
+                    error:function(xhr){
+                        var msg = '完成上传请求失败';
+                        if(xhr.status === 0) msg = '网络连接失败，请检查网络';
+                        else if(xhr.status >= 500) msg = '服务器错误('+xhr.status+')';
+                        layer.msg(msg);
+                        reject(msg);
                     }
                 });
             })
@@ -254,8 +298,12 @@ new Vue({
                             reject(data.msg);
                         }
                     },
-                    error : function(){
-                        reject('上传失败，请稍后再试或联系站长');
+                    error : function(xhr){
+                        var msg = '上传失败，请稍后再试或联系站长';
+                        if(xhr.status === 0) msg = '网络连接失败，请检查网络';
+                        else if(xhr.status === 413) msg = '文件大小超出服务器限制';
+                        else if(xhr.status >= 500) msg = '服务器错误('+xhr.status+')';
+                        reject(msg);
                     },
                     xhr: function() {
                         var xhr = new XMLHttpRequest();
@@ -299,8 +347,11 @@ new Vue({
                     success : function(data) {
                         resolve();
                     },
-                    error : function(){
-                        reject('上传失败，请稍后再试或联系站长');
+                    error : function(xhr){
+                        var msg = '第三方上传失败';
+                        if(xhr.status === 0) msg = '网络连接失败，请检查网络';
+                        else if(xhr.status >= 500) msg = '服务器错误('+xhr.status+')';
+                        reject(msg);
                     },
                     xhr: function() {
                         var xhr = new XMLHttpRequest();

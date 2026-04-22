@@ -140,6 +140,14 @@ API接口地址：<?php echo $siteurl?>api.php
 		if($oldpwd!=$conf['admin_pwd'])showmsg('旧密码不正确！',3);
 		if($newpwd!=$newpwd2)showmsg('两次输入的密码不一致！',3);
 		saveSetting('admin_pwd',$newpwd);
+		// 同步更新前台管理员用户密码
+		$hash = password_hash($newpwd, PASSWORD_DEFAULT);
+		$DB->exec("UPDATE pre_user SET username='".addslashes($user)."', openid='".addslashes($user)."', password='".addslashes($hash)."' WHERE type='local' AND username='".addslashes($conf['admin_user'])."'");
+	}else{
+		// 仅修改用户名时同步更新
+		if($user != $conf['admin_user']){
+			$DB->exec("UPDATE pre_user SET username='".addslashes($user)."', openid='".addslashes($user)."' WHERE type='local' AND username='".addslashes($conf['admin_user'])."'");
+		}
 	}
 	showmsg('修改成功！请重新登录',1);
 }elseif($mod=='account'){
@@ -238,6 +246,10 @@ $(document).ready(function(){
 	  <div class="col-sm-9"><input type="text" name="type_block" value="<?php echo $conf['type_block']; ?>" class="form-control" placeholder="多个文件类型用|隔开"/></div>
 	</div><br/>
 	<div class="form-group">
+	  <label class="col-sm-3 control-label">可在线编辑的文件类型</label>
+	  <div class="col-sm-9"><input type="text" name="type_editable" value="<?php echo $conf['type_editable']; ?>" class="form-control" placeholder="多个文件类型用|隔开"/><font color="green">右击文件时，以上文件类型将显示“在线编辑”选项</font></div>
+	</div><br/>
+	<div class="form-group">
 	  <label class="col-sm-3 control-label">文件名屏蔽关键词</label>
 	  <div class="col-sm-9"><input type="text" name="name_block" value="<?php echo $conf['name_block']; ?>" class="form-control" placeholder="多个关键词用|隔开"/></div>
 	</div><br/>
@@ -252,6 +264,10 @@ $(document).ready(function(){
 	<div class="form-group">
 	  <label class="col-sm-3 control-label">上传大小限制</label>
 	  <div class="col-sm-9"><div class="input-group"><input type="text" name="upload_size" value="<?php echo $conf['upload_size']; ?>" class="form-control" placeholder="不填写则不限制大小"/><span class="input-group-addon">MB</span></div></div>
+	</div><br/>
+	<div class="form-group">
+	  <label class="col-sm-3 control-label">用户默认容量</label>
+	  <div class="col-sm-9"><div class="input-group"><input type="text" name="default_storage" value="<?php echo $conf['default_storage']; ?>" class="form-control" placeholder="0或留空为不限制"/><span class="input-group-addon">GB</span></div><font color="green">新注册用户默认分配的存储空间大小，0表示不限制</font></div>
 	</div><br/>
 	<div class="form-group">
 	  <label class="col-sm-3 control-label">仅限登录用户上传</label>
@@ -276,6 +292,14 @@ $(document).ready(function(){
   	<div class="form-group">
 	  <label class="col-sm-3 control-label">用户登录开关</label>
 	  <div class="col-sm-9"><select class="form-control" name="userlogin" default="<?php echo $conf['userlogin']?>"><option value="0">关闭</option><option value="1">开启</option></select></div>
+	</div><br/>
+	<div class="form-group">
+	  <label class="col-sm-3 control-label">普通用户注册开关</label>
+	  <div class="col-sm-9"><select class="form-control" name="register_open" default="<?php echo $conf['register_open']?>"><option value="0">关闭</option><option value="1">开启</option></select></div>
+	</div><br/>
+	<div class="form-group">
+	  <label class="col-sm-3 control-label">注册邮箱验证</label>
+	  <div class="col-sm-9"><select class="form-control" name="register_email_verify" default="<?php echo $conf['register_email_verify']?>"><option value="0">关闭</option><option value="1">开启</option></select></div>
 	</div><br/>
 	<div class="form-group">
 	  <label class="col-sm-3 control-label">聚合登录接口地址</label>
@@ -308,6 +332,46 @@ $(document).ready(function(){
 <span class="glyphicon glyphicon-info-sign"></span>
 聚合登录接口是使用<a href="https://www.clogin.cc/recommend.php" target="_blank">彩虹聚合登录系统搭建的站点</a>。<br/>
 开启后请勿随意更换登录接口站点，否则会导致之前注册的用户全部无法登录。
+</div>
+</div>
+
+<div class="panel panel-info">
+<div class="panel-heading"><h3 class="panel-title">邮件发送设置（用于注册邮箱验证）</h3></div>
+<div class="panel-body">
+  <form onsubmit="return saveSetting(this)" method="post" class="form-horizontal" role="form">
+	<div class="form-group">
+	  <label class="col-sm-3 control-label">SMTP服务器</label>
+	  <div class="col-sm-9"><input type="text" name="smtp_host" value="<?php echo $conf['smtp_host']; ?>" class="form-control" placeholder="如 smtp.qq.com"/></div>
+	</div><br/>
+	<div class="form-group">
+	  <label class="col-sm-3 control-label">SMTP端口</label>
+	  <div class="col-sm-9"><input type="text" name="smtp_port" value="<?php echo $conf['smtp_port']; ?>" class="form-control" placeholder="如 587"/></div>
+	</div><br/>
+	<div class="form-group">
+	  <label class="col-sm-3 control-label">SMTP用户名</label>
+	  <div class="col-sm-9"><input type="text" name="smtp_user" value="<?php echo $conf['smtp_user']; ?>" class="form-control" placeholder="邮箱账号"/></div>
+	</div><br/>
+	<div class="form-group">
+	  <label class="col-sm-3 control-label">SMTP密码</label>
+	  <div class="col-sm-9"><input type="password" name="smtp_pass" value="<?php echo $conf['smtp_pass']; ?>" class="form-control" placeholder="邮箱密码或授权码"/></div>
+	</div><br/>
+	<div class="form-group">
+	  <label class="col-sm-3 control-label">加密方式</label>
+	  <div class="col-sm-9"><select class="form-control" name="smtp_secure" default="<?php echo $conf['smtp_secure']?>"><option value="tls">TLS</option><option value="ssl">SSL</option><option value="">不加密</option></select></div>
+	</div><br/>
+	<div class="form-group">
+	  <label class="col-sm-3 control-label">发件人邮箱</label>
+	  <div class="col-sm-9"><input type="text" name="smtp_from" value="<?php echo $conf['smtp_from']; ?>" class="form-control" placeholder="默认与SMTP用户名相同"/></div>
+	</div><br/>
+	<div class="form-group">
+	  <label class="col-sm-3 control-label">发件人名称</label>
+	  <div class="col-sm-9"><input type="text" name="smtp_fromname" value="<?php echo $conf['smtp_fromname']; ?>" class="form-control"/></div>
+	</div><br/>
+	<div class="form-group">
+	  <div class="col-sm-offset-3 col-sm-9"><input type="submit" name="submit" value="修改" class="btn btn-primary form-control"/><br/>
+	 </div>
+	</div>
+  </form>
 </div>
 </div>
 <script>

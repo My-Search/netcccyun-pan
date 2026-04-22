@@ -5,7 +5,7 @@ define('IN_CRONLITE', true);
 define('SYSTEM_ROOT', dirname(__FILE__).'/');
 define('ROOT', dirname(SYSTEM_ROOT).'/');
 define('VERSION', '1532');
-define('DB_VERSION', '1001');
+define('DB_VERSION', '1006');
 date_default_timezone_set('Asia/Shanghai');
 $date = date("Y-m-d H:i:s");
 
@@ -69,7 +69,11 @@ if(isset($_COOKIE["user_token"]))
 	if($token){
 		list($uid, $sid, $expiretime) = explode("\t", $token);
 		if($userrow = $DB->getRow("SELECT * FROM pre_user WHERE uid='".intval($uid)."' LIMIT 1")){
-			$session=md5($userrow['type'].$userrow['openid'].$password_hash);
+			if($userrow['type']=='local'){
+				$session=md5($userrow['type'].$userrow['username'].$password_hash);
+			}else{
+				$session=md5($userrow['type'].$userrow['openid'].$password_hash);
+			}
 			if($session===$sid && $expiretime>time()) {
 				if($userrow['enable']==1){
 					$islogin2=1;

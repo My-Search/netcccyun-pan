@@ -49,7 +49,6 @@ if(!empty($conf['api_referer'])){
 if(!isset($_FILES['file']))showresult(['code'=>-1, 'msg'=>'请选择文件']);
 $name=trim(htmlspecialchars($_FILES['file']['name']));
 $size=intval($_FILES['file']['size']);
-$hide = $_POST['show']==1?0:1;
 $ispwd = intval($_POST['ispwd']);
 $pwd = $ispwd==1?trim(htmlspecialchars($_POST['pwd'])):null;
 $name = str_replace(['/','\\',':','*','"','<','>','|','?'],'',$name);
@@ -86,7 +85,7 @@ if($row){
 }
 $result = $stor->upload($hash, $_FILES['file']['tmp_name'], minetype($ext));
 if(!$result)showresult(['code'=>-1, 'msg'=>'文件上传失败', 'error'=>'stor']);
-$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`hide`,`pwd`) values (:name,:type,:size,:hash,NOW(),:ip,:hide,:pwd)", [':name'=>$name, ':type'=>$ext, ':size'=>$size, ':hash'=>$hash, ':ip'=>$clientip, ':hide'=>$hide, ':pwd'=>$pwd]);
+$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd)", [':name'=>$name, ':type'=>$ext, ':size'=>$size, ':hash'=>$hash, ':ip'=>$clientip, ':pwd'=>$pwd]);
 if(!$sds)showresult(['code'=>-1, 'msg'=>'上传失败'.$DB->error(), 'error'=>'database']);
 $id = $DB->lastInsertId();
 

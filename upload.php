@@ -1,6 +1,11 @@
 <?php
 include("./includes/common.php");
 
+if($conf['forcelogin']==1 && !$islogin2){
+    @header('Content-Type: text/html; charset=UTF-8');
+    exit("<script language='javascript'>alert('请先登录后再上传文件');window.location.href='./login.php';</script>");
+}
+
 $title = '上传文件 - '.$conf['title'];
 include SYSTEM_ROOT.'header.php';
 
@@ -36,13 +41,6 @@ $_SESSION['csrf_token'] = $csrf_token;
 <?php }else{?>
          <button id="uploadFile" class="btn btn-raised btn-primary" style="height:50px;font-size:20px;" @click="clickUpload"><i class="fa fa-upload"></i> 选择文件<div class="ripple-container"></div></button>
 <?php }?>
-<div class="form-group">
-<div class="checkbox">
-<label>
-<input type="checkbox" id="show" v-model="input.show"> 在首页文件列表显示
-</label>
-</div>
-</div>
 <div class="form-group">
 <div class="checkbox">
 <label>
@@ -89,7 +87,7 @@ $_SESSION['csrf_token'] = $csrf_token;
 <script src="https://s4.zstatic.net/ajax/libs/vue/2.6.14/vue.min.js"></script>
 <script src="https://s4.zstatic.net/ajax/libs/layer/3.1.1/layer.js"></script>
 <script src="https://s4.zstatic.net/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
-<script>var upload_max_filesize = '<?php echo $conf['upload_size']?>';</script>
+<script>var upload_max_filesize = '<?php echo $conf['upload_size']?>'; var islogin2 = <?php echo $islogin2 ? 'true' : 'false';?>;</script>
 <script src="./assets/js/uploadnew.js?v=<?php echo VERSION?>"></script>
 </body>
 </html>

@@ -31,16 +31,32 @@ if($rs = $db->query("SELECT v FROM pre_config WHERE k='version'")){
 	$version = $rs->fetchColumn();
 }
 
+$sqls = [];
 if($version<1001){
-	$sqls = file_get_contents('update.sql');
-	$sqls=explode(';', $sqls);
-	$sqls[]="REPLACE INTO `pre_config` VALUES ('version', '1001')";
+	$sqls = array_merge($sqls, explode(';', file_get_contents('update_1001.sql')));
 	if(!$db->query("SELECT v FROM pre_config WHERE k='syskey'")->fetchColumn()){
 		$sqls[]="REPLACE INTO `pre_config` VALUES ('syskey', '".random(32)."')";
 	}
-}else{
+}
+if($version<1002){
+	$sqls = array_merge($sqls, explode(';', file_get_contents('update_1002.sql')));
+}
+if($version<1003){
+	$sqls = array_merge($sqls, explode(';', file_get_contents('update_1003.sql')));
+}
+if($version<1004){
+	$sqls = array_merge($sqls, explode(';', file_get_contents('update_1004.sql')));
+}
+if($version<1005){
+	$sqls = array_merge($sqls, explode(';', file_get_contents('update_1005.sql')));
+}
+if($version<1006){
+	$sqls = array_merge($sqls, explode(';', file_get_contents('update_1006.sql')));
+}
+if(empty($sqls)){
 	exit('你的网站已经升级到最新版本了');
 }
+$sqls[]="REPLACE INTO `pre_config` VALUES ('version', '1006')";
 $success=0;$error=0;$errorMsg=null;
 foreach ($sqls as $value) {
 	$value=trim($value);
@@ -51,6 +67,16 @@ foreach ($sqls as $value) {
 		$errorMsg.=$dberror[2]."<br>";
 	}else{
 		$success++;
+	}
+}
+// 创建默认管理员前台账号（如果不存在）
+$admin_user = $db->query("SELECT v FROM pre_config WHERE k='admin_user'")->fetchColumn();
+$admin_pwd = $db->query("SELECT v FROM pre_config WHERE k='admin_pwd'")->fetchColumn();
+if($admin_user && $admin_pwd){
+	$exists = $db->query("SELECT uid FROM pre_user WHERE type='local' AND username='".addslashes($admin_user)."'")->fetchColumn();
+	if(!$exists){
+		$hash = password_hash($admin_pwd, PASSWORD_DEFAULT);
+		$db->exec("INSERT INTO pre_user (type, openid, username, password, nickname, enable, level, addtime, lasttime) VALUES ('local', '".addslashes($admin_user)."', '".addslashes($admin_user)."', '".addslashes($hash)."', '管理员', 1, 1, NOW(), NOW())");
 	}
 }
 echo '成功执行SQL语句'.$success.'条！<br/>';

@@ -20,7 +20,13 @@ if(strpos($url,".")){
 }
 
 $row = $DB->getRow("SELECT * FROM `pre_file` WHERE `hash`=:hash limit 1", [':hash'=>$hash]);
-if(!$row)exit('404 Not Found');
+if(!$row){
+    $new_hash = $DB->getColumn("SELECT new_hash FROM pre_hash_route WHERE old_hash=:hash", [':hash'=>$hash]);
+    if($new_hash){
+        $row = $DB->getRow("SELECT * FROM `pre_file` WHERE `hash`=:hash limit 1", [':hash'=>$new_hash]);
+    }
+    if(!$row)exit('404 Not Found');
+}
 if($row['block']>=1)exit('File is blocked!');
 
 if($row['pwd']!=null && $row['pwd']!=$pwd){ ?>
@@ -43,6 +49,12 @@ if($stor->exists($hash))
     $DB->exec("UPDATE `pre_file` SET `lasttime`=NOW(),`count`=`count`+1 WHERE `id`='{$row['id']}'");
 
     file_output($hash, $row['type'], $row['size'], $row['name']);
+}
+elseif($hash !== $row['hash'] && $stor->exists($row['hash']))
+{
+    $DB->exec("UPDATE `pre_file` SET `lasttime`=NOW(),`count`=`count`+1 WHERE `id`='{$row['id']}'");
+
+    file_output($row['hash'], $row['type'], $row['size'], $row['name']);
 }
 else{
     exit('File Not Found');

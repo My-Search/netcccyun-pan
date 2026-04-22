@@ -22,7 +22,7 @@ if($islogin==1){}else exit("<script language='javascript'>window.location.href='
 				<h4 class="modal-title" id="modal-title">用户信息修改</h4>
 			</div>
 			<div class="modal-body">
-			<div class="alert alert-info">高级权限的用户无每日上传数量、文件类型、关键词屏蔽等限制，且视频文件无需审核。</div>
+				<div class="alert alert-info">高级权限的用户无每日上传数量、文件类型、关键词屏蔽等限制，且视频文件无需审核。</div>
 				<form class="form-horizontal" id="form-store">
 					<input type="hidden" name="action" id="action"/>
 					<input type="hidden" name="uid" id="uid"/>
@@ -30,6 +30,16 @@ if($islogin==1){}else exit("<script language='javascript'>window.location.href='
 						<label class="col-sm-2 control-label no-padding-right">用户权限</label>
 						<div class="col-sm-10">
 							<select id="level" name="level" class="form-control"><option value="0">0_普通</option><option value="1">1_高级</option></select>
+						</div>
+					</div>
+					<div class="form-group">
+						<label class="col-sm-2 control-label no-padding-right">容量限制</label>
+						<div class="col-sm-10">
+							<div class="input-group">
+								<input type="text" id="storage_limit" name="storage_limit" class="form-control" placeholder="0为不限制"/>
+								<span class="input-group-addon">GB</span>
+							</div>
+							<font color="green">0表示不限制存储容量</font>
 						</div>
 					</div>
 				</form>
@@ -46,7 +56,7 @@ if($islogin==1){}else exit("<script language='javascript'>window.location.href='
 	    <form onsubmit="return searchSubmit()" method="GET" class="form-inline" id="searchToolbar">
 	        <div class="form-group">
           <label>搜索</label>
-		  <select name="type" class="form-control"><option value="1">UID</option><option value="2">第三方账号UID</option><option value="3">昵称</option><option value="4">登录IP</option></select>
+		  <select name="type" class="form-control"><option value="1">UID</option><option value="2">第三方账号UID</option><option value="3">昵称/用户名</option><option value="4">登录IP</option></select>
 		    </div>
 			<div class="form-group" id="searchword">
 			<input type="text" class="form-control" name="kw" placeholder="搜索内容">
@@ -116,13 +126,30 @@ $(document).ready(function(){
 				}
 			},
 			{
+				field: 'storage',
+				title: '容量',
+				formatter: function(value, row, index) {
+					var limit = parseInt(row.storage_limit);
+					if(limit > 0){
+						var used = parseInt(row.used_storage);
+						var percent = Math.round(used / limit * 100);
+						var gb = (limit / 1024 / 1024 / 1024).toFixed(2);
+						var usedGb = (used / 1024 / 1024 / 1024).toFixed(2);
+						var color = percent >= 90 ? 'danger' : (percent >= 70 ? 'warning' : 'success');
+						return '<span class="label label-'+color+'">'+usedGb+'GB / '+gb+'GB</span>';
+					}else{
+						return '<span class="label label-default">无限制</span>';
+					}
+				}
+			},
+			{
 				field: 'level',
 				title: '权限',
 				formatter: function(value, row, index) {
 					if(value == '1'){
-						return '<a href="javascript:setLevel('+row.uid+','+value+')" style="color:orange" title="修改用户权限">高级</a>';
+						return '<a href="javascript:setLevel('+row.uid+','+value+','+row.storage_limit+')" style="color:orange" title="修改用户权限">高级</a>';
 					}else{
-						return '<a href="javascript:setLevel('+row.uid+','+value+')" style="color:blue" title="修改用户权限">普通</a>';
+						return '<a href="javascript:setLevel('+row.uid+','+value+','+row.storage_limit+')" style="color:blue" title="修改用户权限">普通</a>';
 					}
 				}
 			},
@@ -163,11 +190,13 @@ function setEnable(uid,enable) {
 	});
 }
 
-function setLevel(uid, level){
+function setLevel(uid, level, storageLimit){
 	$("#modal-store").modal('show');
 	$("#action").val("edit");
 	$("#form-store #uid").val(uid);
 	$("#form-store #level").val(level);
+	var gb = storageLimit > 0 ? (storageLimit / 1024 / 1024 / 1024).toFixed(2) : '0';
+	$("#form-store #storage_limit").val(gb);
 }
 
 function save(){

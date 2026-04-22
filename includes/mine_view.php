@@ -1,0 +1,1002 @@
+<?php
+$title = '我的文件 - ' . $conf['title'];
+$is_file = false;
+$csrf_token = md5(mt_rand(0,999).time());
+$_SESSION['csrf_token'] = $csrf_token;
+include SYSTEM_ROOT.'header.php';
+?>
+<style>
+.mine-toolbar { margin-bottom: 15px; }
+.mine-breadcrumb { background: #f5f5f5; padding: 8px 15px; border-radius: 4px; display: inline-block; }
+.mine-breadcrumb a { color: #337ab7; cursor: pointer; }
+.item-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.item-card { width: 120px; text-align: center; padding: 10px; border-radius: 4px; cursor: pointer; position: relative; user-select: none; }
+.item-card:hover { background: #f0f0f0; }
+.item-card .icon-wrap { font-size: 48px; height: 56px; display: flex; align-items: center; justify-content: center; }
+.item-card .item-name { margin-top: 5px; font-size: 12px; word-break: break-all; line-height: 1.3; max-height: 32px; overflow: hidden; }
+.item-card.drag-over { background: #d9edf7 !important; outline: 2px dashed #337ab7; }
+.item-card.file-item { cursor: grab; }
+.item-card.file-item:active { cursor: grabbing; }
+.item-card .fa-folder { color: #f0ad4e; }
+.item-card .fa-file-image-o { color: #5cb85c; }
+.item-card .fa-file-audio-o { color: #5bc0de; }
+.item-card .fa-file-video-o { color: #d9534f; }
+.item-card .fa-file-archive-o { color: #f0ad4e; }
+.item-card .fa-file-text-o { color: #777; }
+.item-card .fa-file-o { color: #999; }
+.context-menu { position: absolute; z-index: 9999; background: #fff; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: none; min-width: 120px; }
+.context-menu a { display: block; padding: 8px 15px; color: #333; text-decoration: none; }
+.context-menu a:hover { background: #f5f5f5; }
+.upload-dropzone { border: 2px dashed #ccc; border-radius: 8px; padding: 40px; text-align: center; color: #999; transition: all 0.3s; }
+.upload-dropzone.dragover { border-color: #337ab7; background: #f0f8ff; color: #337ab7; }
+.upload-queue { max-height: 300px; overflow-y: auto; margin-top: 15px; }
+.upload-queue-item { display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #eee; transition: background 0.3s; }
+.upload-queue-item .progress { flex: 1; margin: 0 10px; height: 8px; margin-bottom: 0; }
+.upload-queue-item .status { width: 60px; text-align: right; font-size: 12px; }
+</style>
+
+<div class="container" id="mineApp">
+    <div class="mine-toolbar">
+        <div class="mine-breadcrumb" id="breadcrumb">
+            <a onclick="loadFolder(0)">根目录</a>
+        </div>
+        <div class="pull-right">
+            <button class="btn btn-sm btn-success" onclick="openUploadModal()"><i class="fa fa-cloud-upload"></i> 上传文件</button>
+            <button class="btn btn-sm btn-primary" onclick="createNewFolder()"><i class="fa fa-folder"></i> 新建文件夹</button>
+            <button class="btn btn-sm btn-default" onclick="refresh()"><i class="fa fa-refresh"></i> 刷新</button>
+        </div>
+        <div class="clearfix"></div>
+    </div>
+
+    <div class="well bs-component">
+        <div id="itemList" class="item-grid"></div>
+        <div id="emptyTip" style="display:none; text-align:center; padding:40px; color:#999;">
+            <i class="fa fa-folder-open-o" style="font-size:48px;"></i>
+            <p>该目录下没有文件</p>
+        </div>
+    </div>
+</div>
+
+<div id="contextMenu" class="context-menu"></div>
+
+<?php include SYSTEM_ROOT.'footer.php';?>
+<script src="https://s4.zstatic.net/ajax/libs/layer/2.3/layer.js"></script>
+<script src="https://s4.zstatic.net/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+<script src="https://s4.zstatic.net/ajax/libs/clipboard.js/1.7.1/clipboard.min.js"></script>
+<script>
+var currentFolderId = 0;
+var currentData = {folders:[], files:[]};
+var siteurl = '<?php echo $siteurl; ?>';
+var currentFilterType = '';
+
+function getUrlParam(name){
+    var reg = new RegExp('(^|&)'+name+'=([^&]*)(&|$)');
+    var r = window.location.search.substr(1).match(reg);
+    if(r!=null) return decodeURIComponent(r[2]); return null;
+}
+
+function getTypeLabel(type){
+    var map = {'image':'图片','video':'视频','audio':'音乐','document':'文档','other':'其他'};
+    return map[type] || type;
+}
+
+$(function(){
+    currentFilterType = getUrlParam('type') || '';
+    loadFolder(0);
+    $(document).on('click', function(){ $('#contextMenu').hide(); });
+    initListDropzone();
+    // 阻止浏览器默认拖拽打开文件行为
+    $(document).on('dragover dragleave drop', function(e){
+        e.preventDefault();
+    });
+    window.addEventListener('beforeunload', function(e){
+        if(uploadRunning){
+            var msg = '文件正在上传中，离开页面将中断上传，确定要离开吗？';
+            e.returnValue = msg;
+            return msg;
+        }
+    });
+});
+
+function loadFolder(folder_id){
+    currentFolderId = folder_id;
+    // 如果有上传完成标记且当前没有在上传，自动刷新文件列表
+    if(uploadNeedRefresh && !uploadRunning){
+        uploadNeedRefresh = false;
+    }
+    var ii = layer.load(1, {shade:[0.1,'#fff']});
+    var url = 'ajax.php?act=listMine&folder_id='+folder_id;
+    if(currentFilterType){
+        url += '&type=' + encodeURIComponent(currentFilterType);
+    }
+    $.get(url, function(res){
+        layer.close(ii);
+        if(res.code == 0){
+            currentData = res;
+            renderBreadcrumb(res.path);
+            renderItems(res.folders, res.files);
+            var hasContent = res.folders.length > 0 || res.files.length > 0;
+            $('#emptyTip').toggle(!hasContent);
+        }else{
+            layer.msg(res.msg, {icon:2});
+        }
+    }, 'json');
+}
+
+function renderBreadcrumb(path){
+    var html = '<a onclick="loadFolder(0)">根目录</a>';
+    for(var i=0; i<path.length; i++){
+        html += ' / <a onclick="loadFolder('+path[i].id+')">'+escapeHtml(path[i].name)+'</a>';
+    }
+    if(currentFilterType){
+        html += ' <span style="color:#999;margin-left:6px;">['+escapeHtml(getTypeLabel(currentFilterType))+']</span>';
+    }
+    $('#breadcrumb').html(html);
+}
+
+function renderItems(folders, files){
+    var html = '';
+    // 渲染文件夹
+    for(var i=0; i<folders.length; i++){
+        html += '<div class="item-card folder-item" data-folder-id="'+folders[i].id+'" ondblclick="loadFolder('+folders[i].id+')" oncontextmenu="folderContextMenu(event, '+folders[i].id+', \''+escapeHtml(folders[i].name)+'\')">';
+        html += '<div class="icon-wrap"><i class="fa fa-folder"></i></div>';
+        html += '<div class="item-name">'+escapeHtml(folders[i].name)+'</div>';
+        html += '</div>';
+    }
+    // 渲染文件
+    for(var i=0; i<files.length; i++){
+        var f = files[i];
+        var downurl = './down.php/'+f.hash+'.'+(f.type?f.type:'file');
+        var viewurl = './file.php?hash='+f.hash;
+        html += '<div class="item-card file-item" draggable="true" data-file-hash="'+f.hash+'" oncontextmenu="fileContextMenu(event, \''+f.hash+'\', \''+escapeHtml(f.name)+'\', \''+f.type+'\')">';
+        html += '<div class="icon-wrap" onclick="window.open(\''+viewurl+'\', \'_blank\')"><i class="fa '+typeToIcon(f.type)+'"></i></div>';
+        html += '<div class="item-name" onclick="window.open(\''+viewurl+'\', \'_blank\')">'+escapeHtml(f.name)+'</div>';
+        html += '</div>';
+    }
+    $('#itemList').html(html);
+    initDragAndDrop();
+}
+
+function initDragAndDrop(){
+    var fileItems = document.querySelectorAll('.file-item');
+    var folderItems = document.querySelectorAll('.folder-item');
+    var draggedHash = null;
+
+    fileItems.forEach(function(item){
+        item.addEventListener('dragstart', function(e){
+            draggedHash = item.getAttribute('data-file-hash');
+            e.dataTransfer.effectAllowed = 'move';
+            item.style.opacity = '0.5';
+        });
+        item.addEventListener('dragend', function(e){
+            item.style.opacity = '1';
+            draggedHash = null;
+        });
+    });
+
+    folderItems.forEach(function(item){
+        item.addEventListener('dragover', function(e){
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            item.classList.add('drag-over');
+        });
+        item.addEventListener('dragleave', function(e){
+            item.classList.remove('drag-over');
+        });
+        item.addEventListener('drop', function(e){
+            e.preventDefault();
+            item.classList.remove('drag-over');
+            var targetFolderId = item.getAttribute('data-folder-id');
+            if(draggedHash && targetFolderId){
+                doMoveFile(draggedHash, targetFolderId);
+            }
+        });
+    });
+}
+
+function folderContextMenu(e, id, name){
+    e.preventDefault();
+    var html = '<a onclick="loadFolder('+id+')">打开</a>';
+    html += '<a onclick="shareFolder('+id+', \''+name+'\')">分享</a>';
+    html += '<a onclick="renameFolder('+id+', \''+name+'\')">重命名</a>';
+    html += '<a onclick="deleteFolder('+id+')">删除</a>';
+    showContextMenu(e, html);
+}
+
+function isEditableType(type){
+    var editable = <?php echo json_encode(array_map('strtolower', explode('|', $conf['type_editable'] ?: ''))); ?>;
+    return editable.indexOf((type||'').toLowerCase()) > -1;
+}
+
+function fileContextMenu(e, hash, name, type){
+    e.preventDefault();
+    var html = '<a href="./file.php?hash='+hash+'" target="_blank">查看</a>';
+    html += '<a onclick="copyDirectLink(\''+hash+'\', \''+type+'\')">复制直链</a>';
+    if(isEditableType(type)){
+        html += '<a onclick="openTextEditor(\''+hash+'\', \''+escapeHtml(name)+'\', \''+type+'\')">在线编辑</a>';
+    }
+    html += '<a onclick="moveFile(\''+hash+'\')">移动到</a>';
+    html += '<a onclick="deleteFile(\''+hash+'\')">删除</a>';
+    showContextMenu(e, html);
+}
+
+function showContextMenu(e, html){
+    $('#contextMenu').html(html).css({left:e.pageX, top:e.pageY}).show();
+}
+
+function createNewFolder(){
+    layer.prompt({title:'新建文件夹', formType:0}, function(val, index){
+        if(!val.trim()){ layer.msg('名称不能为空'); return; }
+        var ii = layer.load(1);
+        $.post('ajax.php?act=createFolder', {name:val.trim(), parent_id:currentFolderId}, function(res){
+            layer.close(ii);
+            if(res.code==0){ layer.close(index); loadFolder(currentFolderId); }
+            else{ layer.msg(res.msg, {icon:2}); }
+        }, 'json');
+    });
+}
+
+function renameFolder(id, oldName){
+    layer.prompt({title:'重命名文件夹', value:oldName, formType:0}, function(val, index){
+        if(!val.trim()){ layer.msg('名称不能为空'); return; }
+        var ii = layer.load(1);
+        $.post('ajax.php?act=renameFolder', {id:id, name:val.trim()}, function(res){
+            layer.close(ii);
+            if(res.code==0){ layer.close(index); loadFolder(currentFolderId); }
+            else{ layer.msg(res.msg, {icon:2}); }
+        }, 'json');
+    });
+}
+
+function deleteFolder(id){
+    layer.confirm('确定删除该文件夹吗？', function(index){
+        var ii = layer.load(1);
+        $.post('ajax.php?act=deleteFolder', {id:id}, function(res){
+            layer.close(ii);
+            if(res.code==0){ layer.close(index); loadFolder(currentFolderId); }
+            else{ layer.msg(res.msg, {icon:2}); }
+        }, 'json');
+    });
+}
+
+function deleteFile(hash){
+    layer.confirm('确定删除该文件吗？', function(index){
+        var ii = layer.load(1);
+        var csrf = '<?php echo $csrf_token; ?>';
+        $.post('ajax.php?act=deleteFile', {hash:hash, csrf_token:csrf}, function(res){
+            layer.close(ii);
+            if(res.code==0){ layer.close(index); loadFolder(currentFolderId); }
+            else{ layer.msg(res.msg, {icon:2}); }
+        }, 'json');
+    });
+}
+
+function moveFile(hash){
+    var folders = currentData.folders;
+    if(folders.length == 0 && currentFolderId == 0){
+        layer.msg('暂无其他目录可移动'); return;
+    }
+    var html = '<div style="padding:15px;">';
+    html += '<p>选择目标目录：</p>';
+    html += '<div class="list-group">';
+    html += '<a class="list-group-item '+(currentFolderId==0?'active':'')+'" onclick="doMoveFile(\''+hash+'\', 0);layer.closeAll();">根目录</a>';
+    for(var i=0; i<folders.length; i++){
+        html += '<a class="list-group-item" onclick="doMoveFile(\''+hash+'\', '+folders[i].id+');layer.closeAll();">'+escapeHtml(folders[i].name)+'</a>';
+    }
+    html += '</div></div>';
+    layer.open({type:1, title:'移动到', area:['350px','300px'], content:html});
+}
+
+function doMoveFile(hash, folder_id){
+    var ii = layer.load(1);
+    $.post('ajax.php?act=moveFile', {hash:hash, folder_id:folder_id}, function(res){
+        layer.close(ii);
+        if(res.code==0){ loadFolder(currentFolderId); }
+        else{ layer.msg(res.msg, {icon:2}); }
+    }, 'json');
+}
+
+function refresh(){ loadFolder(currentFolderId); }
+
+function copyDirectLink(hash, type){
+    var link = siteurl + 'down.php/' + hash + '.' + type;
+    var $temp = $('<input>');
+    $('body').append($temp);
+    $temp.val(link).select();
+    document.execCommand('copy');
+    $temp.remove();
+    layer.msg('直链已复制到剪贴板', {icon:1});
+}
+
+var editorLayerIndex = null;
+var currentEditHash = '';
+
+var cmModeMap = {
+    'js':'javascript','ts':'javascript','tsx':'javascript','jsx':'javascript','json':'javascript',
+    'css':'css','html':'htmlmixed','htm':'htmlmixed','vue':'htmlmixed',
+    'xml':'xml','php':'php','py':'python','java':'text/x-java',
+    'go':'go','c':'text/x-c','cpp':'text/x-c++src','h':'text/x-c++src',
+    'sql':'sql','sh':'shell','bat':'shell',
+    'md':'markdown','yaml':'yaml','yml':'yaml',
+    'lua':'lua','rb':'ruby','pl':'perl'
+};
+
+function openTextEditor(hash, name, type){
+    currentEditHash = hash;
+    var ii = layer.load(1);
+    $.get('ajax.php?act=getFileContent&hash='+hash, function(res){
+        layer.close(ii);
+        if(res.code != 0){
+            layer.msg(res.msg, {icon:2});
+            return;
+        }
+        var content = res.content || '';
+        editorLayerIndex = layer.open({
+            type: 2,
+            title: '在线编辑 - '+escapeHtml(name),
+            area: ['820px', '520px'],
+            content: 'editor.html',
+            shadeClose: false,
+            anim: -1,
+            success: function(layero, index){
+                var iframeWin = layero.find('iframe')[0].contentWindow;
+                setTimeout(function(){
+                    iframeWin.postMessage({
+                        action: 'init',
+                        hash: hash,
+                        content: content,
+                        mode: cmModeMap[(type||'').toLowerCase()] || ''
+                    }, '*');
+                }, 100);
+            },
+            end: function(){
+            }
+        });
+    }, 'json');
+}
+
+function saveTextContent(content){
+    var csrf = '<?php echo $csrf_token; ?>';
+    var ii = layer.load(1);
+    $.post('ajax.php?act=saveFileContent', {hash:currentEditHash, content:content, csrf_token:csrf}, function(res){
+        layer.close(ii);
+        if(res.code == 0){
+            layer.msg(res.msg, {icon:1});
+            layer.close(editorLayerIndex);
+            loadFolder(currentFolderId);
+        }else{
+            layer.msg(res.msg, {icon:2});
+        }
+    }, 'json');
+}
+
+window.addEventListener('message', function(e){
+    if(e.data.action === 'save'){
+        saveTextContent(e.data.content);
+    }else if(e.data.action === 'cancel'){
+        layer.close(editorLayerIndex);
+    }
+});
+
+function shareFolder(id, name){
+    var html = '<div style="padding:15px;">';
+    html += '<p>分享文件夹：<b>'+escapeHtml(name)+'</b></p>';
+    html += '<p>访问密码（留空表示无需密码）：</p>';
+    html += '<input type="text" id="sharePwd" class="form-control" placeholder="请输入密码" maxlength="16">';
+    html += '<p style="margin-top:10px; color:#999; font-size:12px;">密码只能为字母和数字</p>';
+    html += '</div>';
+    layer.open({
+        type: 1,
+        title: '分享文件夹',
+        area: ['400px', '260px'],
+        content: html,
+        btn: ['确认分享', '取消'],
+        yes: function(index){
+            var pwd = $('#sharePwd').val().trim();
+            if(pwd && !/^[a-zA-Z0-9]+$/.test(pwd)){
+                layer.msg('密码只能为字母和数字', {icon:2});
+                return;
+            }
+            var ii = layer.load(1);
+            $.post('ajax.php?act=createShare', {folder_id:id, pwd:pwd}, function(res){
+                layer.close(ii);
+                if(res.code == 0){
+                    layer.close(index);
+                    var showHtml = '<div style="padding:15px; text-align:center;">';
+                    showHtml += '<p>分享链接：</p>';
+                    showHtml += '<div class="input-group" style="margin-bottom:15px;">';
+                    showHtml += '<input type="text" class="form-control" id="shareUrlInput" readonly value="'+res.url+'">';
+                    showHtml += '<span class="input-group-btn"><button class="btn btn-primary" onclick="copyShareUrl()">复制</button></span>';
+                    showHtml += '</div>';
+                    showHtml += '</div>';
+                    layer.open({
+                        type: 1,
+                        title: '分享成功',
+                        area: ['450px', '200px'],
+                        content: showHtml
+                    });
+                }else{
+                    layer.msg(res.msg, {icon:2});
+                }
+            }, 'json');
+        }
+    });
+}
+
+function copyShareUrl(){
+    var url = $('#shareUrlInput').val();
+    var $temp = $('<input>');
+    $('body').append($temp);
+    $temp.val(url).select();
+    document.execCommand('copy');
+    $temp.remove();
+    layer.msg('分享链接已复制', {icon:1});
+}
+
+function escapeHtml(text){
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(text));
+    return div.innerHTML;
+}
+
+function sizeFormat(size){
+    if(size<1024) return size+' B';
+    size/=1024;
+    if(size<1024) return size.toFixed(2)+' KB';
+    size/=1024;
+    if(size<1024) return size.toFixed(2)+' MB';
+    size/=1024;
+    return size.toFixed(2)+' GB';
+}
+
+function typeToIcon(type){
+    var img = ['png','jpg','jpeg','gif','bmp','webp','ico','svg'];
+    var audio = ['mp3','wav','ogg','m4a','flac','aac'];
+    var video = ['mp4','webm','flv','mov','avi','mkv'];
+    if(img.indexOf(type)>-1) return 'fa-file-image-o';
+    if(audio.indexOf(type)>-1) return 'fa-file-audio-o';
+    if(video.indexOf(type)>-1) return 'fa-file-video-o';
+    if(type=='zip'||type=='rar'||type=='7z') return 'fa-file-archive-o';
+    if(type=='txt'||type=='md') return 'fa-file-text-o';
+    return 'fa-file-o';
+}
+
+var uploadModalIndex = null;
+var uploadNeedRefresh = false;
+
+function initListDropzone(){
+    var zone = document.querySelector('.well.bs-component');
+    if(!zone) return;
+    zone.addEventListener('dragover', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        zone.style.border = '2px dashed #337ab7';
+        zone.style.background = '#f0f8ff';
+    });
+    zone.addEventListener('dragleave', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        if(!zone.contains(e.relatedTarget)){
+            zone.style.border = '';
+            zone.style.background = '';
+        }
+    });
+    zone.addEventListener('drop', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        zone.style.border = '';
+        zone.style.background = '';
+        try {
+            var files = [];
+            if(e.dataTransfer.items){
+                var items = e.dataTransfer.items;
+                var promises = [];
+                for(var i=0; i<items.length; i++){
+                    var item = null;
+                    try {
+                        item = items[i].webkitGetAsEntry();
+                    } catch(err) {
+                        console.error('webkitGetAsEntry error:', err);
+                    }
+                    if(item) {
+                        promises.push(new Promise(function(resolve){
+                            var timeout = setTimeout(function(){
+                                console.warn('traverseFileTree timeout');
+                                resolve();
+                            }, 10000);
+                            traverseFileTree(item, '', files, function(){
+                                clearTimeout(timeout);
+                                resolve();
+                            });
+                        }));
+                    }
+                }
+                Promise.all(promises).then(function(){
+                    handleUploadFiles(files);
+                }).catch(function(err){
+                    console.error('Promise.all error:', err);
+                    handleUploadFiles(files);
+                });
+            }else{
+                files = Array.from(e.dataTransfer.files);
+                handleUploadFiles(files);
+            }
+        } catch(err) {
+            console.error('Drop handler error:', err);
+            var fallbackFiles = Array.from(e.dataTransfer.files);
+            if(fallbackFiles.length > 0){
+                handleUploadFiles(fallbackFiles);
+            }
+        }
+    });
+}
+
+/* ========== 上传弹框组件 ========== */
+function openUploadModal(prefillFiles){
+    var html = '<div style="padding:15px;">';
+    html += '<div class="upload-dropzone" id="uploadDropzone">';
+    html += '<p><i class="fa fa-cloud-upload" style="font-size:36px;"></i></p>';
+    html += '<p>拖拽文件或文件夹到此处上传</p>';
+    html += '<p><button class="btn btn-primary btn-sm" onclick="document.getElementById(\'fileInput\').click()">选择文件</button> ';
+    html += '<button class="btn btn-info btn-sm" onclick="document.getElementById(\'folderInput\').click()">选择文件夹</button></p>';
+    html += '</div>';
+    html += '<input type="file" id="fileInput" multiple style="display:none" onchange="handleFiles(this.files)">';
+    html += '<input type="file" id="folderInput" webkitdirectory style="display:none" onchange="handleFiles(this.files)">';
+    html += '<div style="margin-top:10px; text-align:right;">';
+    html += '<button class="btn btn-default btn-xs" id="toggleQueueBtn" onclick="toggleQueue()"><i class="fa fa-eye-slash"></i> 隐藏列表</button>';
+    html += '</div>';
+    html += '<div class="upload-queue" id="uploadQueue"></div>';
+    html += '</div>';
+    uploadModalIndex = layer.open({
+        type:1,
+        title:'上传文件',
+        area:['600px','500px'],
+        content:html,
+        success:function(){
+            initDropzone();
+            // 恢复之前正在上传的队列
+            if(uploadQueue.length > 0){
+                renderUploadQueue();
+            }
+            if(prefillFiles && prefillFiles.length > 0){
+                addFilesToQueue(prefillFiles);
+            }
+        },
+        end:function(){
+            uploadModalIndex = null;
+            // 用户关闭弹框不影响上传，不自动刷新页面
+            // 上传完成后通过 uploadNeedRefresh 标记，等用户手动刷新或下次加载时刷新
+        }
+    });
+}
+
+function toggleQueue(){
+    var $queue = $('#uploadQueue');
+    var $btn = $('#toggleQueueBtn');
+    if($queue.is(':visible')){
+        $queue.hide();
+        $btn.html('<i class="fa fa-eye"></i> 显示列表');
+    }else{
+        $queue.show();
+        $btn.html('<i class="fa fa-eye-slash"></i> 隐藏列表');
+    }
+}
+
+function initDropzone(){
+    var zone = document.getElementById('uploadDropzone');
+    if(!zone) return;
+    zone.addEventListener('dragover', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        zone.classList.add('dragover');
+    });
+    zone.addEventListener('dragleave', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        if(!zone.contains(e.relatedTarget)){
+            zone.classList.remove('dragover');
+        }
+    });
+    zone.addEventListener('drop', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        zone.classList.remove('dragover');
+        var files = [];
+        if(e.dataTransfer.items){
+            var items = e.dataTransfer.items;
+            var promises = [];
+            for(var i=0; i<items.length; i++){
+                var item = items[i].webkitGetAsEntry();
+                if(item) {
+                    promises.push(new Promise(function(resolve){
+                        traverseFileTree(item, '', files, resolve);
+                    }));
+                }
+            }
+            Promise.all(promises).then(function(){
+                handleUploadFiles(files);
+            });
+        }else{
+            files = Array.from(e.dataTransfer.files);
+            handleUploadFiles(files);
+        }
+    });
+}
+
+function traverseFileTree(item, path, files, callback){
+    // 防止无限递归的安全计数器
+    var maxIterations = 1000;
+    var iterationCount = 0;
+    
+    // 确保 callback 一定被调用（防止卡死）
+    var callbackCalled = false;
+    var safetyTimeout = setTimeout(function(){
+        if(!callbackCalled){
+            callbackCalled = true;
+            console.warn('traverseFileTree safety timeout triggered');
+            if(callback) callback();
+        }
+    }, 5000); // 5秒安全超时
+    
+    function safeCallback(){
+        if(!callbackCalled){
+            callbackCalled = true;
+            clearTimeout(safetyTimeout);
+            if(callback) callback();
+        }
+    }
+    
+    try {
+        if(!item){
+            safeCallback();
+            return;
+        }
+        
+        if(item.isFile){
+            item.file(function(file){
+                try {
+                    file.relativePath = path + file.name;
+                    files.push(file);
+                } catch(e) {
+                    console.error('Error processing file:', e);
+                }
+                safeCallback();
+            }, function(error){
+                console.error('Error reading file:', error);
+                safeCallback();
+            });
+        }else if(item.isDirectory){
+            var dirReader = item.createReader();
+            function readEntries(){
+                iterationCount++;
+                if(iterationCount > maxIterations){
+                    console.error('Max iterations reached, aborting directory read');
+                    safeCallback();
+                    return;
+                }
+                dirReader.readEntries(function(entries){
+                    if(entries.length > 0){
+                        var promises = [];
+                        for(var i=0; i<entries.length; i++){
+                            promises.push(new Promise(function(resolve){
+                                try {
+                                    traverseFileTree(entries[i], path + item.name + '/', files, resolve);
+                                } catch(e) {
+                                    console.error('Error traversing entry:', e);
+                                    resolve();
+                                }
+                            }));
+                        }
+                        Promise.all(promises).then(function(){
+                            readEntries();
+                        }).catch(function(e){
+                            console.error('Promise.all error:', e);
+                            safeCallback();
+                        });
+                    }else{
+                        safeCallback();
+                    }
+                }, function(error){
+                    console.error('Error reading directory entries:', error);
+                    safeCallback();
+                });
+            }
+            readEntries();
+        }else{
+            safeCallback();
+        }
+    } catch(e) {
+        console.error('traverseFileTree error:', e);
+        safeCallback();
+    }
+}
+
+function handleFiles(fileList){
+    var files = Array.from(fileList);
+    handleUploadFiles(files);
+}
+
+var uploadQueue = [];
+var uploadRunning = false;
+
+function addFilesToQueue(files){
+    for(var i=0; i<files.length; i++){
+        var task = {
+            id: Date.now() + '_' + i,
+            file: files[i],
+            name: files[i].name,
+            size: files[i].size,
+            relativePath: files[i].relativePath || files[i].webkitRelativePath || files[i].name,
+            status: 'waiting',
+            progress: 0,
+            hash: null,
+            chunks: 0,
+            chunkSize: 0,
+            currentChunk: 0
+        };
+        uploadQueue.push(task);
+        addQueueItem(task);
+    }
+    if(!uploadRunning){
+        uploadRunning = true;
+        processUploadQueue();
+    }
+}
+
+function handleUploadFiles(files){
+    if(files.length == 0) return;
+    if(uploadModalIndex === null){
+        openUploadModal(files);
+        return;
+    }
+    addFilesToQueue(files);
+}
+
+function addQueueItem(task){
+    var html = '<div class="upload-queue-item" id="uq_'+task.id+'">';
+    html += '<div style="width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="'+escapeHtml(task.name)+'">'+escapeHtml(task.name)+'</div>';
+    html += '<div class="progress"><div class="progress-bar" style="width:0%"></div></div>';
+    html += '<div class="status" id="us_'+task.id+'">等待中</div>';
+    html += '</div>';
+    $('#uploadQueue').append(html);
+}
+
+function renderUploadQueue(){
+    $('#uploadQueue').empty();
+    for(var i=0; i<uploadQueue.length; i++){
+        var task = uploadQueue[i];
+        addQueueItem(task);
+        var percent = 0;
+        var statusText = '等待中';
+        var isError = false;
+        if(task.status == 'hashing'){
+            statusText = '计算Hash...';
+        }else if(task.status == 'preupload'){
+            statusText = '准备上传...';
+            percent = 5;
+        }else if(task.status == 'uploading'){
+            percent = Math.floor((task.currentChunk / task.chunks) * 100);
+            statusText = '上传中 ' + percent + '%';
+        }else if(task.status == 'completed'){
+            percent = 100;
+            statusText = '完成';
+        }else if(task.status == 'error'){
+            statusText = '上传失败';
+            isError = true;
+        }
+        updateQueueItem(task, statusText, percent, isError);
+    }
+}
+
+function updateQueueItem(task, status, percent, isError){
+    $('#uq_'+task.id+' .progress-bar').css('width', percent+'%');
+    var $status = $('#us_'+task.id);
+    $status.text(status);
+    if(isError){
+        $status.css('color', '#d9534f');
+        $('#uq_'+task.id).css('background', '#fff5f5');
+    }else if(percent >= 100){
+        $status.css('color', '#5cb85c');
+    }else{
+        $status.css('color', '');
+    }
+}
+
+function processUploadQueue(){
+    // 找第一个 waiting 状态的任务
+    var task = null;
+    for(var i=0; i<uploadQueue.length; i++){
+        if(uploadQueue[i].status == 'waiting'){
+            task = uploadQueue[i];
+            break;
+        }
+    }
+    // 如果没有 waiting 的任务，检查是否还有正在进行的
+    if(!task){
+        var hasRunning = false;
+        for(var i=0; i<uploadQueue.length; i++){
+            var s = uploadQueue[i].status;
+            if(s == 'hashing' || s == 'preupload' || s == 'uploading'){
+                hasRunning = true;
+                break;
+            }
+        }
+        if(!hasRunning){
+            uploadRunning = false;
+            uploadNeedRefresh = true;
+            // 所有文件上传完成，如果弹框已关闭，可以提示用户刷新
+            if(uploadModalIndex === null){
+                layer.msg('文件上传完成，请刷新页面查看最新文件', {icon:1, time:3000});
+            }
+        }
+        return;
+    }
+    task.status = 'hashing';
+    updateQueueItem(task, '计算Hash...', 0);
+    computeFileHash(task.file, function(hash){
+        try {
+            if(!hash){
+                task.status = 'error';
+                updateQueueItem(task, '文件读取失败，无法计算Hash', 0, true);
+                processUploadQueue();
+                return;
+            }
+            task.hash = hash;
+            task.status = 'preupload';
+            updateQueueItem(task, '准备上传...', 5);
+            doPreUpload(task, function(preRes){
+                try {
+                    if(preRes.code == 1){
+                        task.status = 'completed';
+                        updateQueueItem(task, '已存在', 100);
+                        processUploadQueue();
+                        return;
+                    }
+                    if(preRes.code != 0){
+                        task.status = 'error';
+                        updateQueueItem(task, preRes.msg || '预上传失败', 0, true);
+                        processUploadQueue();
+                        return;
+                    }
+                    task.chunks = preRes.chunks || 1;
+                    task.chunkSize = preRes.chunksize || task.size;
+                    task.status = 'uploading';
+                    var resumeData = getResumeData(task.hash);
+                    if(resumeData && resumeData.chunks == task.chunks){
+                        task.currentChunk = resumeData.currentChunk;
+                    }else{
+                        task.currentChunk = 0;
+                        saveResumeData(task.hash, {chunks:task.chunks, currentChunk:0, name:task.name});
+                    }
+                    uploadChunks(task, preRes.chunksize);
+                } catch(e) {
+                    console.error('doPreUpload callback error:', e);
+                    task.status = 'error';
+                    updateQueueItem(task, '处理异常', 0, true);
+                    processUploadQueue();
+                }
+            });
+        } catch(e) {
+            console.error('computeFileHash callback error:', e);
+            task.status = 'error';
+            updateQueueItem(task, '处理异常', 0, true);
+            processUploadQueue();
+        }
+    });
+}
+
+function uploadChunks(task, chunksize){
+    if(task.currentChunk >= task.chunks){
+        task.status = 'completed';
+        updateQueueItem(task, '完成', 100);
+        clearResumeData(task.hash);
+        processUploadQueue();
+        return;
+    }
+    var start = task.currentChunk * chunksize;
+    var end = Math.min(start + chunksize, task.size);
+    var blob = task.file.slice(start, end);
+    var percent = Math.floor((task.currentChunk / task.chunks) * 100);
+    updateQueueItem(task, '上传中 '+percent+'%', percent);
+    var formData = new FormData();
+    formData.append('file', blob);
+    formData.append('chunk', task.currentChunk + 1);
+    formData.append('hash', task.hash);
+    formData.append('csrf_token', '<?php echo $csrf_token; ?>');
+    $.ajax({
+        url: 'ajax.php?act=upload_part',
+        type: 'POST',
+        data: formData,
+        processData: false,
+        contentType: false,
+        success: function(res){
+            try {
+                if(res.code == 0){
+                    task.currentChunk++;
+                    saveResumeData(task.hash, {chunks:task.chunks, currentChunk:task.currentChunk, name:task.name});
+                    uploadChunks(task, chunksize);
+                }else if(res.code == 1){
+                    task.status = 'completed';
+                    updateQueueItem(task, '已存在', 100);
+                    clearResumeData(task.hash);
+                    processUploadQueue();
+                }else{
+                    task.status = 'error';
+                    updateQueueItem(task, res.msg || '上传失败', 0, true);
+                    processUploadQueue();
+                }
+            } catch(e) {
+                console.error('uploadChunks success callback error:', e);
+                task.status = 'error';
+                updateQueueItem(task, '处理异常', 0, true);
+                processUploadQueue();
+            }
+        },
+        error: function(){
+            task.status = 'error';
+            updateQueueItem(task, '网络错误，请检查网络后重试', 0, true);
+            processUploadQueue();
+        }
+    });
+}
+
+function computeFileHash(file, callback){
+    var chunkSize = 2 * 1024 * 1024;
+    var chunks = Math.ceil(file.size / chunkSize);
+    var spark = new SparkMD5.ArrayBuffer();
+    var fileReader = new FileReader();
+    var currentChunk = 0;
+    fileReader.onload = function(e){
+        spark.append(e.target.result);
+        currentChunk++;
+        if(currentChunk < chunks){
+            loadNext();
+        }else{
+            callback(spark.end());
+        }
+    };
+    fileReader.onerror = function(){
+        callback('');
+    };
+    function loadNext(){
+        var start = currentChunk * chunkSize;
+        var end = Math.min(start + chunkSize, file.size);
+        fileReader.readAsArrayBuffer(file.slice(start, end));
+    }
+    loadNext();
+}
+
+function doPreUpload(task, callback){
+    $.post('ajax.php?act=pre_upload', {
+        name: task.name,
+        hash: task.hash,
+        size: task.size,
+        ispwd: 0,
+        pwd: '',
+        csrf_token: '<?php echo $csrf_token; ?>',
+        folder_id: currentFolderId,
+        relative_path: task.relativePath || ''
+    }, callback, 'json');
+}
+
+function getResumeData(hash){
+    try{
+        var data = localStorage.getItem('upload_resume_'+hash);
+        return data ? JSON.parse(data) : null;
+    }catch(e){ return null; }
+}
+
+function saveResumeData(hash, data){
+    try{
+        localStorage.setItem('upload_resume_'+hash, JSON.stringify(data));
+    }catch(e){}
+}
+
+function clearResumeData(hash){
+    try{
+        localStorage.removeItem('upload_resume_'+hash);
+    }catch(e){}
+}
+</script>
+</body>
+</html>
