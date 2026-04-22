@@ -17,12 +17,6 @@
 
 -----
 
-### 📅 更新日志
-
-详细版本演进请查看：[CHANGELOG.md](https://www.google.com/search?q=./CHANGELOG.md)
-
------
-
 ### 🚀 部署指南
 
 #### 方案一：Docker 部署（推荐）
