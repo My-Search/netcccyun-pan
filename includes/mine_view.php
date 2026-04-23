@@ -10,10 +10,10 @@ include SYSTEM_ROOT.'header.php';
 .mine-breadcrumb { background: #f5f5f5; padding: 8px 15px; border-radius: 4px; display: inline-block; }
 .mine-breadcrumb a { color: #337ab7; cursor: pointer; }
 .item-grid { display: flex; flex-wrap: wrap; gap: 10px; }
-.item-card { width: 120px; text-align: center; padding: 10px; border-radius: 4px; cursor: pointer; position: relative; user-select: none; }
+.item-card { width: 120px; text-align: center; padding: 10px; border-radius: 4px; cursor: pointer; position: relative; user-select: none; -webkit-touch-callout: none; -webkit-user-select: none; }
 .item-card:hover { background: #f0f0f0; }
-.item-card .icon-wrap { font-size: 48px; height: 56px; display: flex; align-items: center; justify-content: center; }
-.item-card .item-name { margin-top: 5px; font-size: 12px; word-break: break-all; line-height: 1.3; max-height: 32px; overflow: hidden; }
+.item-card .icon-wrap { font-size: 48px; height: 56px; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.item-card .item-name { margin-top: 5px; font-size: 12px; word-break: break-all; line-height: 1.3; max-height: 32px; overflow: hidden; pointer-events: none; }
 .item-card.drag-over { background: #d9edf7 !important; outline: 2px dashed #337ab7; }
 .item-card.file-item { cursor: grab; }
 .item-card.file-item:active { cursor: grabbing; }
@@ -27,6 +27,18 @@ include SYSTEM_ROOT.'header.php';
 .context-menu { position: absolute; z-index: 9999; background: #fff; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: none; min-width: 120px; }
 .context-menu a { display: block; padding: 8px 15px; color: #333; text-decoration: none; }
 .context-menu a:hover { background: #f5f5f5; }
+/* 移动端底部菜单 */
+.mobile-menu-list { padding: 10px 0; }
+.mobile-menu-item { padding: 14px 20px; font-size: 15px; color: #333; text-align: center; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
+.mobile-menu-item:last-of-type { border-bottom: none; }
+.mobile-menu-item:active { background: #f5f5f5; }
+.mobile-menu-danger { color: #d9534f !important; }
+.mobile-menu-cancel { padding: 14px 20px; font-size: 15px; color: #999; text-align: center; cursor: pointer; margin-top: 8px; border-top: 1px solid #f0f0f0; }
+.mobile-menu-cancel:active { background: #f5f5f5; }
+/* 触摸拖拽幽灵 */
+.drag-ghost { position: fixed; z-index: 10000; pointer-events: none; opacity: 0.85; box-shadow: 0 4px 15px rgba(0,0,0,0.2); border-radius: 8px; background: #fff; transform: scale(1.05); }
+.drag-ghost .icon-wrap { font-size: 40px; height: 48px; }
+.drag-ghost .item-name { font-size: 11px; }
 .upload-dropzone { border: 2px dashed #ccc; border-radius: 8px; padding: 40px; text-align: center; color: #999; transition: all 0.3s; }
 .upload-dropzone.dragover { border-color: #337ab7; background: #f0f8ff; color: #337ab7; }
 .upload-queue { max-height: 300px; overflow-y: auto; margin-top: 15px; }
@@ -138,7 +150,7 @@ function renderItems(folders, files){
     var html = '';
     // 渲染文件夹
     for(var i=0; i<folders.length; i++){
-        html += '<div class="item-card folder-item" data-folder-id="'+folders[i].id+'" ondblclick="loadFolder('+folders[i].id+')" oncontextmenu="folderContextMenu(event, '+folders[i].id+', \''+escapeHtml(folders[i].name)+'\')">';
+        html += '<div class="item-card folder-item" data-folder-id="'+folders[i].id+'" data-name="'+escapeHtml(folders[i].name)+'">';
         html += '<div class="icon-wrap"><i class="fa fa-folder"></i></div>';
         html += '<div class="item-name">'+escapeHtml(folders[i].name)+'</div>';
         html += '</div>';
@@ -146,15 +158,38 @@ function renderItems(folders, files){
     // 渲染文件
     for(var i=0; i<files.length; i++){
         var f = files[i];
-        var downurl = './down.php/'+f.hash+'.'+(f.type?f.type:'file');
-        var viewurl = './file.php?hash='+f.hash;
-        html += '<div class="item-card file-item" draggable="true" data-file-hash="'+f.hash+'" oncontextmenu="fileContextMenu(event, \''+f.hash+'\', \''+escapeHtml(f.name)+'\', \''+f.type+'\')">';
-        html += '<div class="icon-wrap" onclick="window.open(\''+viewurl+'\', \'_blank\')"><i class="fa '+typeToIcon(f.type)+'"></i></div>';
-        html += '<div class="item-name" onclick="window.open(\''+viewurl+'\', \'_blank\')">'+escapeHtml(f.name)+'</div>';
+        html += '<div class="item-card file-item" draggable="true" data-file-hash="'+f.hash+'" data-name="'+escapeHtml(f.name)+'" data-type="'+f.type+'">';
+        html += '<div class="icon-wrap"><i class="fa '+typeToIcon(f.type)+'"></i></div>';
+        html += '<div class="item-name">'+escapeHtml(f.name)+'</div>';
         html += '</div>';
     }
     $('#itemList').html(html);
+    initItemEvents();
+}
+
+function initItemEvents(){
+    // PC 端双击打开文件夹
+    $('#itemList').on('dblclick', '.folder-item', function(){
+        loadFolder($(this).data('folder-id'));
+    });
+    // PC 端单击打开文件（触摸操作后不触发）
+    $('#itemList').on('click', '.file-item', function(e){
+        if($(this).hasClass('touch-action')) return;
+        window.open('./file.php?hash='+$(this).data('file-hash'), '_blank');
+    });
+    // PC 端右键菜单
+    $('#itemList').on('contextmenu', '.folder-item', function(e){
+        e.preventDefault();
+        folderContextMenu(e, $(this).data('folder-id'), $(this).data('name'));
+    });
+    $('#itemList').on('contextmenu', '.file-item', function(e){
+        e.preventDefault();
+        var $el = $(this);
+        fileContextMenu(e, $el.data('file-hash'), $el.data('name'), $el.data('type'));
+    });
+
     initDragAndDrop();
+    initTouchEvents();
 }
 
 function initDragAndDrop(){
@@ -191,6 +226,202 @@ function initDragAndDrop(){
                 doMoveFile(draggedHash, targetFolderId);
             }
         });
+    });
+}
+
+/* ========== 移动端触摸事件：长按菜单 + 拖拽 ========== */
+var touchDragGhost = null;
+var touchDragData = null;
+var touchDragOffset = {x:0, y:0};
+var longPressTimer = null;
+var touchStartPos = {x:0, y:0};
+var touchActive = false;
+var isLongPress = false;
+var isTouchDragging = false;
+var LONG_PRESS_DELAY = 500;
+var MOVE_THRESHOLD = 10;
+
+function initTouchEvents(){
+    if(!('ontouchstart' in window)) return;
+
+    $('#itemList').off('touchstart touchmove touchend touchcancel');
+
+    $('#itemList').on('touchstart', '.item-card', function(e){
+        var touch = e.originalEvent.touches[0];
+        touchStartPos = {x: touch.clientX, y: touch.clientY};
+        touchActive = true;
+        isLongPress = false;
+        isTouchDragging = false;
+        var $el = $(this);
+
+        longPressTimer = setTimeout(function(){
+            if(!touchActive) return;
+            isLongPress = true;
+            // 阻止默认行为（如系统菜单、文字选择）
+            try { e.preventDefault(); } catch(err){}
+            if($el.hasClass('folder-item')){
+                showMobileFolderMenu($el.data('folder-id'), $el.data('name'));
+            }else{
+                showMobileFileMenu($el.data('file-hash'), $el.data('name'), $el.data('type'));
+            }
+        }, LONG_PRESS_DELAY);
+    });
+
+    $('#itemList').on('touchmove', '.item-card', function(e){
+        if(!touchActive) return;
+        var touch = e.originalEvent.touches[0];
+        var dx = Math.abs(touch.clientX - touchStartPos.x);
+        var dy = Math.abs(touch.clientY - touchStartPos.y);
+
+        if(dx > MOVE_THRESHOLD || dy > MOVE_THRESHOLD){
+            clearTimeout(longPressTimer);
+            if(!isLongPress && !isTouchDragging){
+                // 开始触摸拖拽
+                var $el = $(this);
+                if($el.hasClass('file-item')){
+                    isTouchDragging = true;
+                    $el.addClass('dragging');
+                    startTouchDrag($el, touch);
+                }
+            }
+        }
+
+        if(isTouchDragging){
+            e.preventDefault();
+            moveTouchDrag(touch);
+        }
+    });
+
+    $('#itemList').on('touchend touchcancel', '.item-card', function(e){
+        clearTimeout(longPressTimer);
+        touchActive = false;
+        var $el = $(this);
+        if(isTouchDragging){
+            endTouchDrag();
+            $el.removeClass('dragging');
+        }
+        if(isLongPress || isTouchDragging){
+            $el.addClass('touch-action');
+            setTimeout(function(){ $el.removeClass('touch-action'); }, 300);
+        }
+        isLongPress = false;
+        isTouchDragging = false;
+    });
+}
+
+function startTouchDrag($el, touch){
+    var rect = $el[0].getBoundingClientRect();
+    touchDragOffset = {
+        x: touch.clientX - rect.left,
+        y: touch.clientY - rect.top
+    };
+    touchDragData = {
+        hash: $el.data('file-hash')
+    };
+
+    touchDragGhost = $el.clone().addClass('drag-ghost').css({
+        left: rect.left + 'px',
+        top: rect.top + 'px',
+        width: rect.width + 'px'
+    }).appendTo('body');
+
+    $el.css('opacity', '0.3');
+}
+
+function moveTouchDrag(touch){
+    if(!touchDragGhost) return;
+    touchDragGhost.css({
+        left: (touch.clientX - touchDragOffset.x) + 'px',
+        top: (touch.clientY - touchDragOffset.y) + 'px'
+    });
+
+    // 高亮悬停的文件夹
+    touchDragGhost.hide();
+    var el = document.elementFromPoint(touch.clientX, touch.clientY);
+    touchDragGhost.show();
+    var $target = $(el).closest('.folder-item');
+    $('.folder-item').removeClass('drag-over');
+    if($target.length){
+        $target.addClass('drag-over');
+    }
+}
+
+function endTouchDrag(){
+    if(!touchDragGhost) return;
+    var ghostRect = touchDragGhost[0].getBoundingClientRect();
+    var centerX = ghostRect.left + ghostRect.width / 2;
+    var centerY = ghostRect.top + ghostRect.height / 2;
+
+    touchDragGhost.hide();
+    var el = document.elementFromPoint(centerX, centerY);
+    touchDragGhost.show();
+
+    var $target = $(el).closest('.folder-item');
+    if($target.length && touchDragData && touchDragData.hash){
+        var targetFolderId = $target.data('folder-id');
+        if(targetFolderId !== undefined){
+            doMoveFile(touchDragData.hash, targetFolderId);
+        }
+    }
+
+    touchDragGhost.remove();
+    touchDragGhost = null;
+    touchDragData = null;
+    $('.item-card').css('opacity', '');
+    $('.item-card').removeClass('drag-over');
+}
+
+function showMobileFileMenu(hash, name, type){
+    var actions = [];
+    actions.push({text: '查看', cls: '', fn: function(){ window.open('./file.php?hash='+hash, '_blank'); }});
+    actions.push({text: '复制直链', cls: '', fn: function(){ copyDirectLink(hash, type); }});
+    if(isEditableType(type)){
+        actions.push({text: '在线编辑', cls: '', fn: function(){ openTextEditor(hash, name, type); }});
+    }
+    actions.push({text: '移动到', cls: '', fn: function(){ moveFile(hash); }});
+    actions.push({text: '删除', cls: 'mobile-menu-danger', fn: function(){ deleteFile(hash); }});
+    showMobileMenu(name, actions);
+}
+
+function showMobileFolderMenu(id, name){
+    var actions = [];
+    actions.push({text: '打开', cls: '', fn: function(){ loadFolder(id); }});
+    actions.push({text: '分享', cls: '', fn: function(){ shareFolder(id, name); }});
+    actions.push({text: '重命名', cls: '', fn: function(){ renameFolder(id, name); }});
+    actions.push({text: '删除', cls: 'mobile-menu-danger', fn: function(){ deleteFolder(id); }});
+    showMobileMenu(name, actions);
+}
+
+function showMobileMenu(title, actions){
+    var html = '<div style="padding:12px 0 0; text-align:center; font-weight:600; color:#333; font-size:14px; max-width:280px; margin:0 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">'+escapeHtml(title)+'</div>';
+    html += '<div class="mobile-menu-list">';
+    for(var i=0; i<actions.length; i++){
+        html += '<div class="mobile-menu-item '+actions[i].cls+'" data-menu-index="'+i+'">'+escapeHtml(actions[i].text)+'</div>';
+    }
+    html += '</div>';
+    html += '<div class="mobile-menu-cancel" data-menu-action="cancel">取消</div>';
+
+    var idx = layer.open({
+        type: 1,
+        title: false,
+        closeBtn: 0,
+        area: ['100%', 'auto'],
+        offset: 'b',
+        content: html,
+        shadeClose: true,
+        success: function(layero){
+            layero.css({borderRadius: '12px 12px 0 0', padding: '0 0 10px'});
+            layero.find('.mobile-menu-item').on('click', function(){
+                var i = $(this).data('menu-index');
+                if(actions[i] && actions[i].fn){
+                    actions[i].fn();
+                }
+                layer.close(idx);
+            });
+            layero.find('.mobile-menu-cancel').on('click', function(){
+                layer.close(idx);
+            });
+        }
     });
 }
 

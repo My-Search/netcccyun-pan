@@ -54,3 +54,37 @@
 .panel-yellow a:hover {
     color: #df8a13;
 }
+
+/* 移动端响应式优化 */
+@media (max-width: 767px) {
+    /* 统计数字字体缩小 */
+    .huge {
+        font-size: 24px;
+    }
+
+    /* 面板头部padding缩小 */
+    .panel-heading {
+        padding: 8px 10px;
+    }
+
+    /* 图标大小缩小 */
+    .panel-heading .fa-5x {
+        font-size: 2.5em;
+    }
+
+    /* 面板底部padding缩小 */
+    .panel-footer {
+        padding: 8px 10px;
+    }
+
+    /* 统计面板之间的间距缩小 */
+    .panel {
+        margin-bottom: 10px;
+    }
+
+    /* 面板内行对齐优化 */
+    .panel-heading .row {
+        display: flex;
+        align-items: center;
+    }
+}

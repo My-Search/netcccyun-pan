@@ -557,6 +557,19 @@ case 'createShare':
 	exit(json_encode(['code'=>0, 'msg'=>'分享成功', 'url'=>$shareurl, 'token'=>$token]));
 break;
 
+case 'checkSharePwd':
+	$token = isset($_POST['token'])?trim($_POST['token']):'';
+	$pwd = isset($_POST['pwd'])?trim($_POST['pwd']):'';
+	if(empty($token) || !preg_match('/^[0-9a-z]{32}$/i', $token))exit('{"code":-1,"msg":"分享链接无效"}');
+	$share = $DB->getRow("SELECT * FROM pre_share WHERE token=:token", [':token'=>$token]);
+	if(!$share)exit('{"code":-1,"msg":"分享不存在或已失效"}');
+	if(!empty($share['pwd']) && $share['pwd'] != $pwd){
+		exit('{"code":-1,"msg":"密码错误"}');
+	}
+	$files = $DB->getAll("SELECT id, name, type, size, hash, addtime, count FROM pre_file WHERE folder_id=:folder_id ORDER BY id DESC", [':folder_id'=>$share['folder_id']]);
+	exit(json_encode(['code'=>0, 'files'=>$files]));
+break;
+
 case 'saveShare':
 	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
