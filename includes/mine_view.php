@@ -17,6 +17,8 @@ include SYSTEM_ROOT.'header.php';
 .item-card.drag-over { background: #d9edf7 !important; outline: 2px dashed #337ab7; }
 .item-card.file-item { cursor: grab; }
 .item-card.file-item:active { cursor: grabbing; }
+.item-card.folder-item { cursor: grab; }
+.item-card.folder-item:active { cursor: grabbing; }
 .item-card .fa-folder { color: #f0ad4e; }
 .item-card .fa-file-image-o { color: #5cb85c; }
 .item-card .fa-file-audio-o { color: #5bc0de; }
@@ -45,6 +47,25 @@ include SYSTEM_ROOT.'header.php';
 .upload-queue-item { display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #eee; transition: background 0.3s; }
 .upload-queue-item .progress { flex: 1; margin: 0 10px; height: 8px; margin-bottom: 0; }
 .upload-queue-item .status { width: 60px; text-align: right; font-size: 12px; }
+/* 移动到 - 树形选择器样式 */
+.move-tree { max-height: 320px; overflow: auto; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #fafafa; }
+.move-tree-item { padding: 0; cursor: pointer; border-radius: 3px; transition: background 0.2s; white-space: nowrap; }
+.move-tree-item:hover { background: #e8e8e8; }
+.move-tree-item.selected { background: #337ab7; color: #fff; }
+.move-tree-item.selected .move-tree-icon { color: #fff; }
+.move-tree-item.selected .move-tree-toggle { color: #fff; }
+.move-tree-node { display: flex; align-items: center; padding: 6px 8px; }
+.move-tree-toggle { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-size: 10px; color: #666; margin-right: 4px; flex-shrink: 0; }
+.move-tree-toggle:hover { color: #333; }
+.move-tree-toggle.empty { visibility: hidden; }
+.move-tree-children { padding-left: 20px; display: none; }
+.move-tree-children.expanded { display: block; }
+.move-tree-icon { margin-right: 6px; color: #f0ad4e; flex-shrink: 0; }
+.move-tree-node span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.move-tree-quick-btns { margin-bottom: 15px; }
+.move-tree-quick-btns .btn { margin-right: 8px; margin-bottom: 8px; }
+.move-tree-current { padding: 10px; background: #f5f5f5; border-radius: 4px; margin-bottom: 15px; font-weight: 500; }
+.move-tree-current .name { color: #337ab7; }
 </style>
 
 <div class="container" id="mineApp">
@@ -148,13 +169,13 @@ function renderBreadcrumb(path){
 
 function renderItems(folders, files){
     var html = '';
-    // 渲染文件夹
-    for(var i=0; i<folders.length; i++){
-        html += '<div class="item-card folder-item" data-folder-id="'+folders[i].id+'" data-name="'+escapeHtml(folders[i].name)+'">';
-        html += '<div class="icon-wrap"><i class="fa fa-folder"></i></div>';
-        html += '<div class="item-name">'+escapeHtml(folders[i].name)+'</div>';
-        html += '</div>';
-    }
+  // 渲染文件夹
+  for(var i=0; i<folders.length; i++){
+    html += '<div class="item-card folder-item" draggable="true" data-folder-id="'+folders[i].id+'" data-name="'+escapeHtml(folders[i].name)+'">';
+    html += '<div class="icon-wrap"><i class="fa fa-folder"></i></div>';
+    html += '<div class="item-name">'+escapeHtml(folders[i].name)+'</div>';
+    html += '</div>';
+  }
     // 渲染文件
     for(var i=0; i<files.length; i++){
         var f = files[i];
@@ -193,40 +214,53 @@ function initItemEvents(){
 }
 
 function initDragAndDrop(){
-    var fileItems = document.querySelectorAll('.file-item');
-    var folderItems = document.querySelectorAll('.folder-item');
-    var draggedHash = null;
+  var draggedHash = null;
+  var draggedFolderId = null;
 
-    fileItems.forEach(function(item){
-        item.addEventListener('dragstart', function(e){
-            draggedHash = item.getAttribute('data-file-hash');
-            e.dataTransfer.effectAllowed = 'move';
-            item.style.opacity = '0.5';
-        });
-        item.addEventListener('dragend', function(e){
-            item.style.opacity = '1';
-            draggedHash = null;
-        });
-    });
+  // 使用事件委托处理拖拽
+  $('#itemList').off('dragstart', '.file-item').on('dragstart', '.file-item', function(e){
+    draggedHash = $(this).data('file-hash');
+    draggedFolderId = null;
+    e.originalEvent.dataTransfer.effectAllowed = 'move';
+    $(this).css('opacity', '0.5');
+  });
 
-    folderItems.forEach(function(item){
-        item.addEventListener('dragover', function(e){
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            item.classList.add('drag-over');
-        });
-        item.addEventListener('dragleave', function(e){
-            item.classList.remove('drag-over');
-        });
-        item.addEventListener('drop', function(e){
-            e.preventDefault();
-            item.classList.remove('drag-over');
-            var targetFolderId = item.getAttribute('data-folder-id');
-            if(draggedHash && targetFolderId){
-                doMoveFile(draggedHash, targetFolderId);
-            }
-        });
-    });
+  $('#itemList').off('dragstart', '.folder-item').on('dragstart', '.folder-item', function(e){
+    draggedHash = null;
+    draggedFolderId = $(this).data('folder-id');
+    e.originalEvent.dataTransfer.effectAllowed = 'move';
+    $(this).css('opacity', '0.5');
+  });
+
+  $('#itemList').off('dragend', '.item-card').on('dragend', '.item-card', function(e){
+    $(this).css('opacity', '1');
+    draggedHash = null;
+    draggedFolderId = null;
+  });
+
+  $('#itemList').off('dragover', '.folder-item').on('dragover', '.folder-item', function(e){
+    e.preventDefault();
+    e.originalEvent.dataTransfer.dropEffect = 'move';
+    $(this).addClass('drag-over');
+  });
+
+  $('#itemList').off('dragleave', '.folder-item').on('dragleave', '.folder-item', function(e){
+    $(this).removeClass('drag-over');
+  });
+
+  $('#itemList').off('drop', '.folder-item').on('drop', '.folder-item', function(e){
+    e.preventDefault();
+    $(this).removeClass('drag-over');
+    var targetFolderId = $(this).data('folder-id');
+    if(draggedHash && targetFolderId !== undefined){
+      doMoveFile(draggedHash, targetFolderId);
+    }else if(draggedFolderId !== null && targetFolderId !== undefined){
+      // 不能移动到自己
+      if(draggedFolderId != targetFolderId){
+        doMoveFolder(draggedFolderId, targetFolderId);
+      }
+    }
+  });
 }
 
 /* ========== 移动端触摸事件：长按菜单 + 拖拽 ========== */
@@ -268,23 +302,23 @@ function initTouchEvents(){
     });
 
     $('#itemList').on('touchmove', '.item-card', function(e){
-        if(!touchActive) return;
-        var touch = e.originalEvent.touches[0];
-        var dx = Math.abs(touch.clientX - touchStartPos.x);
-        var dy = Math.abs(touch.clientY - touchStartPos.y);
+      if(!touchActive) return;
+      var touch = e.originalEvent.touches[0];
+      var dx = Math.abs(touch.clientX - touchStartPos.x);
+      var dy = Math.abs(touch.clientY - touchStartPos.y);
 
-        if(dx > MOVE_THRESHOLD || dy > MOVE_THRESHOLD){
-            clearTimeout(longPressTimer);
-            if(!isLongPress && !isTouchDragging){
-                // 开始触摸拖拽
-                var $el = $(this);
-                if($el.hasClass('file-item')){
-                    isTouchDragging = true;
-                    $el.addClass('dragging');
-                    startTouchDrag($el, touch);
-                }
-            }
+      if(dx > MOVE_THRESHOLD || dy > MOVE_THRESHOLD){
+        clearTimeout(longPressTimer);
+        if(!isLongPress && !isTouchDragging){
+          // 开始触摸拖拽 - 支持文件和文件夹
+          var $el = $(this);
+          if($el.hasClass('file-item') || $el.hasClass('folder-item')){
+            isTouchDragging = true;
+            $el.addClass('dragging');
+            startTouchDrag($el, touch);
+          }
         }
+      }
 
         if(isTouchDragging){
             e.preventDefault();
@@ -310,22 +344,32 @@ function initTouchEvents(){
 }
 
 function startTouchDrag($el, touch){
-    var rect = $el[0].getBoundingClientRect();
-    touchDragOffset = {
-        x: touch.clientX - rect.left,
-        y: touch.clientY - rect.top
-    };
+  var rect = $el[0].getBoundingClientRect();
+  touchDragOffset = {
+    x: touch.clientX - rect.left,
+    y: touch.clientY - rect.top
+  };
+
+  // 支持文件和文件夹拖拽
+  if($el.hasClass('file-item')){
     touchDragData = {
-        hash: $el.data('file-hash')
+      type: 'file',
+      hash: $el.data('file-hash')
     };
+  }else if($el.hasClass('folder-item')){
+    touchDragData = {
+      type: 'folder',
+      folderId: $el.data('folder-id')
+    };
+  }
 
-    touchDragGhost = $el.clone().addClass('drag-ghost').css({
-        left: rect.left + 'px',
-        top: rect.top + 'px',
-        width: rect.width + 'px'
-    }).appendTo('body');
+  touchDragGhost = $el.clone().addClass('drag-ghost').css({
+    left: rect.left + 'px',
+    top: rect.top + 'px',
+    width: rect.width + 'px'
+  }).appendTo('body');
 
-    $el.css('opacity', '0.3');
+  $el.css('opacity', '0.3');
 }
 
 function moveTouchDrag(touch){
@@ -347,49 +391,57 @@ function moveTouchDrag(touch){
 }
 
 function endTouchDrag(){
-    if(!touchDragGhost) return;
-    var ghostRect = touchDragGhost[0].getBoundingClientRect();
-    var centerX = ghostRect.left + ghostRect.width / 2;
-    var centerY = ghostRect.top + ghostRect.height / 2;
+  if(!touchDragGhost) return;
+  var ghostRect = touchDragGhost[0].getBoundingClientRect();
+  var centerX = ghostRect.left + ghostRect.width / 2;
+  var centerY = ghostRect.top + ghostRect.height / 2;
 
-    touchDragGhost.hide();
-    var el = document.elementFromPoint(centerX, centerY);
-    touchDragGhost.show();
+  touchDragGhost.hide();
+  var el = document.elementFromPoint(centerX, centerY);
+  touchDragGhost.show();
 
-    var $target = $(el).closest('.folder-item');
-    if($target.length && touchDragData && touchDragData.hash){
-        var targetFolderId = $target.data('folder-id');
-        if(targetFolderId !== undefined){
-            doMoveFile(touchDragData.hash, targetFolderId);
+  var $target = $(el).closest('.folder-item');
+  if($target.length && touchDragData){
+    var targetFolderId = $target.data('folder-id');
+    if(targetFolderId !== undefined){
+      if(touchDragData.type === 'file' && touchDragData.hash){
+        doMoveFile(touchDragData.hash, targetFolderId);
+      }else if(touchDragData.type === 'folder' && touchDragData.folderId !== undefined){
+        // 不能移动到自己
+        if(touchDragData.folderId != targetFolderId){
+          doMoveFolder(touchDragData.folderId, targetFolderId);
         }
+      }
     }
+  }
 
-    touchDragGhost.remove();
-    touchDragGhost = null;
-    touchDragData = null;
-    $('.item-card').css('opacity', '');
-    $('.item-card').removeClass('drag-over');
+  touchDragGhost.remove();
+  touchDragGhost = null;
+  touchDragData = null;
+  $('.item-card').css('opacity', '');
+  $('.item-card').removeClass('drag-over');
 }
 
 function showMobileFileMenu(hash, name, type){
-    var actions = [];
-    actions.push({text: '查看', cls: '', fn: function(){ window.open('./file.php?hash='+hash, '_blank'); }});
-    actions.push({text: '复制直链', cls: '', fn: function(){ copyDirectLink(hash, type); }});
-    if(isEditableType(type)){
-        actions.push({text: '在线编辑', cls: '', fn: function(){ openTextEditor(hash, name, type); }});
-    }
-    actions.push({text: '移动到', cls: '', fn: function(){ moveFile(hash); }});
-    actions.push({text: '删除', cls: 'mobile-menu-danger', fn: function(){ deleteFile(hash); }});
-    showMobileMenu(name, actions);
+  var actions = [];
+  actions.push({text: '查看', cls: '', fn: function(){ window.open('./file.php?hash='+hash, '_blank'); }});
+  actions.push({text: '复制直链', cls: '', fn: function(){ copyDirectLink(hash, type); }});
+  if(isEditableType(type)){
+    actions.push({text: '在线编辑', cls: '', fn: function(){ openTextEditor(hash, name, type); }});
+  }
+  actions.push({text: '移动到', cls: '', fn: function(){ openMoveTree('file', hash, name); }});
+  actions.push({text: '删除', cls: 'mobile-menu-danger', fn: function(){ deleteFile(hash); }});
+  showMobileMenu(name, actions);
 }
 
 function showMobileFolderMenu(id, name){
-    var actions = [];
-    actions.push({text: '打开', cls: '', fn: function(){ loadFolder(id); }});
-    actions.push({text: '分享', cls: '', fn: function(){ shareFolder(id, name); }});
-    actions.push({text: '重命名', cls: '', fn: function(){ renameFolder(id, name); }});
-    actions.push({text: '删除', cls: 'mobile-menu-danger', fn: function(){ deleteFolder(id); }});
-    showMobileMenu(name, actions);
+  var actions = [];
+  actions.push({text: '打开', cls: '', fn: function(){ loadFolder(id); }});
+  actions.push({text: '移动到', cls: '', fn: function(){ openMoveTree('folder', id, name); }});
+  actions.push({text: '分享', cls: '', fn: function(){ shareFolder(id, name); }});
+  actions.push({text: '重命名', cls: '', fn: function(){ renameFolder(id, name); }});
+  actions.push({text: '删除', cls: 'mobile-menu-danger', fn: function(){ deleteFolder(id); }});
+  showMobileMenu(name, actions);
 }
 
 function showMobileMenu(title, actions){
@@ -426,12 +478,13 @@ function showMobileMenu(title, actions){
 }
 
 function folderContextMenu(e, id, name){
-    e.preventDefault();
-    var html = '<a onclick="loadFolder('+id+')">打开</a>';
-    html += '<a onclick="shareFolder('+id+', \''+name+'\')">分享</a>';
-    html += '<a onclick="renameFolder('+id+', \''+name+'\')">重命名</a>';
-    html += '<a onclick="deleteFolder('+id+')">删除</a>';
-    showContextMenu(e, html);
+  e.preventDefault();
+  var html = '<a onclick="loadFolder('+id+')">打开</a>';
+  html += '<a onclick="openMoveTree(\'folder\', '+id+', \''+name+'\')">移动到</a>';
+  html += '<a onclick="shareFolder('+id+', \''+name+'\')">分享</a>';
+  html += '<a onclick="renameFolder('+id+', \''+name+'\')">重命名</a>';
+  html += '<a onclick="deleteFolder('+id+')">删除</a>';
+  showContextMenu(e, html);
 }
 
 function isEditableType(type){
@@ -440,15 +493,15 @@ function isEditableType(type){
 }
 
 function fileContextMenu(e, hash, name, type){
-    e.preventDefault();
-    var html = '<a href="./file.php?hash='+hash+'" target="_blank">查看</a>';
-    html += '<a onclick="copyDirectLink(\''+hash+'\', \''+type+'\')">复制直链</a>';
-    if(isEditableType(type)){
-        html += '<a onclick="openTextEditor(\''+hash+'\', \''+escapeHtml(name)+'\', \''+type+'\')">在线编辑</a>';
-    }
-    html += '<a onclick="moveFile(\''+hash+'\')">移动到</a>';
-    html += '<a onclick="deleteFile(\''+hash+'\')">删除</a>';
-    showContextMenu(e, html);
+  e.preventDefault();
+  var html = '<a href="./file.php?hash='+hash+'" target="_blank">查看</a>';
+  html += '<a onclick="copyDirectLink(\''+hash+'\', \''+type+'\')">复制直链</a>';
+  if(isEditableType(type)){
+    html += '<a onclick="openTextEditor(\''+hash+'\', \''+escapeHtml(name)+'\', \''+type+'\')">在线编辑</a>';
+  }
+  html += '<a onclick="openMoveTree(\'file\', \''+hash+'\', \''+name+'\')">移动到</a>';
+  html += '<a onclick="deleteFile(\''+hash+'\')">删除</a>';
+  showContextMenu(e, html);
 }
 
 function showContextMenu(e, html){
@@ -502,20 +555,171 @@ function deleteFile(hash){
     });
 }
 
-function moveFile(hash){
-    var folders = currentData.folders;
-    if(folders.length == 0 && currentFolderId == 0){
-        layer.msg('暂无其他目录可移动'); return;
+// 移动功能全局变量
+var moveTargetType = ''; // 'file' or 'folder'
+var moveTargetId = null; // file hash or folder id
+var moveTargetName = '';
+var selectedTargetFolderId = null;
+var moveTreeLayerIndex = null;
+
+function getParentFolderId(){
+  if(!currentData.path || currentData.path.length === 0) return null;
+  if(currentData.path.length === 1) return 0;
+  return currentData.path[currentData.path.length - 2].id;
+}
+
+function openMoveTree(type, id, name){
+  moveTargetType = type;
+  moveTargetId = id;
+  moveTargetName = name;
+  selectedTargetFolderId = null;
+
+  var html = '<div style="padding:15px;">';
+  html += '<div class="move-tree-current">正在移动：<span class="name">'+escapeHtml(name)+'</span></div>';
+
+  // 快捷按钮
+  html += '<div class="move-tree-quick-btns">';
+  var parentId = getParentFolderId();
+  if(parentId !== null){
+    html += '<button class="btn btn-sm btn-default" onclick="moveToParentConfirm()">上层目录</button>';
+  }
+  html += '<button class="btn btn-sm btn-default" onclick="moveToRootConfirm()">根目录</button>';
+  html += '</div>';
+
+  // 树形目录选择器
+  html += '<p style="margin-bottom:8px; color:#666;">选择目标文件夹：</p>';
+  html += '<div class="move-tree" id="moveTreeRoot">';
+  html += '<div class="move-tree-item" data-folder-id="0">';
+  html += '<div class="move-tree-node">';
+  html += '<span class="move-tree-toggle" onclick="toggleMoveTree(0, this)">▶</span>';
+  html += '<i class="fa fa-folder move-tree-icon"></i>';
+  html += '<span onclick="selectMoveTree(0, this)">根目录</span>';
+  html += '</div>';
+  html += '<div class="move-tree-children" id="moveTreeChildren_0"></div>';
+  html += '</div>';
+  html += '</div>';
+
+  // 确认按钮
+  html += '<div style="margin-top:15px; text-align:center;">';
+  html += '<button class="btn btn-primary" onclick="confirmMove()">确认移动</button>';
+  html += '</div>';
+  html += '</div>';
+
+  moveTreeLayerIndex = layer.open({
+    type: 1,
+    title: '移动到',
+    area: ['400px', '500px'],
+    content: html,
+    success: function(){
+      // 自动展开根目录子文件夹
+      renderMoveTreeNode(0, $('#moveTreeChildren_0'));
     }
-    var html = '<div style="padding:15px;">';
-    html += '<p>选择目标目录：</p>';
-    html += '<div class="list-group">';
-    html += '<a class="list-group-item '+(currentFolderId==0?'active':'')+'" onclick="doMoveFile(\''+hash+'\', 0);layer.closeAll();">根目录</a>';
+  });
+}
+
+function moveToParentConfirm(){
+  var parentId = getParentFolderId();
+  if(parentId === null){
+    layer.msg('已在根目录', {icon:0});
+    return;
+  }
+  doMove(moveTargetType, moveTargetId, parentId);
+  layer.close(moveTreeLayerIndex);
+}
+
+function moveToRootConfirm(){
+  doMove(moveTargetType, moveTargetId, 0);
+  layer.close(moveTreeLayerIndex);
+}
+
+function renderMoveTreeNode(parentId, container){
+  container.html('<div style="padding:10px;color:#999;"><i class="fa fa-spinner fa-spin"></i> 加载中...</div>');
+  $.get('ajax.php?act=listFolder&parent_id='+parentId, function(res){
+    if(res.code !== 0){
+      container.html('<div style="padding:10px;color:#d9534f;">加载失败</div>');
+      return;
+    }
+    var folders = res.data || [];
+    var html = '';
     for(var i=0; i<folders.length; i++){
-        html += '<a class="list-group-item" onclick="doMoveFile(\''+hash+'\', '+folders[i].id+');layer.closeAll();">'+escapeHtml(folders[i].name)+'</a>';
+      var f = folders[i];
+      // 如果是移动文件夹，不能移动到自身及其子文件夹中
+      if(moveTargetType === 'folder' && f.id == moveTargetId) continue;
+      html += '<div class="move-tree-item" data-folder-id="'+f.id+'">';
+      html += '<div class="move-tree-node">';
+      html += '<span class="move-tree-toggle" onclick="toggleMoveTree('+f.id+', this)">▶</span>';
+      html += '<i class="fa fa-folder move-tree-icon"></i>';
+      html += '<span onclick="selectMoveTree('+f.id+', this)">'+escapeHtml(f.name)+'</span>';
+      html += '</div>';
+      html += '<div class="move-tree-children" id="moveTreeChildren_'+f.id+'"></div>';
+      html += '</div>';
     }
-    html += '</div></div>';
-    layer.open({type:1, title:'移动到', area:['350px','300px'], content:html});
+    if(html === ''){
+      container.html('<div style="padding:5px 10px;color:#999;font-size:12px;">暂无子文件夹</div>');
+    }else{
+      container.html(html);
+      container.addClass('expanded');
+      // 如果有子文件夹，展开第一个的toggle图标
+      container.siblings('.move-tree-node').find('.move-tree-toggle').first().text('▼');
+    }
+  }, 'json');
+}
+
+function toggleMoveTree(folderId, toggleEl){
+  var $toggle = $(toggleEl);
+  var $children = $('#moveTreeChildren_'+folderId);
+  if($children.hasClass('expanded')){
+    $children.removeClass('expanded');
+    $toggle.text('▶');
+  }else{
+    if($children.children().length === 0){
+      renderMoveTreeNode(folderId, $children);
+    }else{
+      $children.addClass('expanded');
+    }
+    $toggle.text('▼');
+  }
+}
+
+function selectMoveTree(folderId, nameEl){
+  selectedTargetFolderId = folderId;
+  $('.move-tree-item').removeClass('selected');
+  $(nameEl).closest('.move-tree-item').addClass('selected');
+}
+
+function confirmMove(){
+  if(selectedTargetFolderId === null){
+    layer.msg('请选择目标文件夹', {icon:0});
+    return;
+  }
+  doMove(moveTargetType, moveTargetId, selectedTargetFolderId);
+  layer.close(moveTreeLayerIndex);
+}
+
+function doMove(type, id, folder_id){
+  if(type === 'file'){
+    doMoveFile(id, folder_id);
+  }else if(type === 'folder'){
+    doMoveFolder(id, folder_id);
+  }
+}
+
+function doMoveFolder(id, parent_id){
+  var ii = layer.load(1);
+  $.post('ajax.php?act=moveFolder', {id:id, parent_id:parent_id}, function(res){
+    layer.close(ii);
+    if(res.code === 0){
+      layer.msg('移动成功', {icon:1});
+      loadFolder(currentFolderId);
+    }else{
+      layer.msg(res.msg, {icon:2});
+    }
+  }, 'json');
+}
+
+// 保留旧函数名用于兼容性，实际调用openMoveTree
+function moveFile(hash){
+  openMoveTree('file', hash, '文件');
 }
 
 function doMoveFile(hash, folder_id){

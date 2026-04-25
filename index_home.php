@@ -114,7 +114,7 @@ include SYSTEM_ROOT.'header.php';
     <div class="quick-actions">
         <a href="./mine.php"><i class="fa fa-folder" style="color:#f0ad4e"></i><span>文件管理</span></a>
         <a href="javascript:void(0)" onclick="openUpload()"><i class="fa fa-cloud-upload" style="color:#5cb85c"></i><span>上传文件</span></a>
-        <a href="./mine.php"><i class="fa fa-share-alt" style="color:#5bc0de"></i><span>我的分享</span></a>
+        <a href="./my_shares.php"><i class="fa fa-share-alt" style="color:#5bc0de"></i><span>我的分享</span></a>
     </div>
 
     <!-- 分类浏览 -->

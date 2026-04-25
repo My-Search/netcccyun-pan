@@ -43,8 +43,52 @@ if($needPwd){
     $isVerified = true;
 }
 
+function getShareSubFolderIds($parentId, $uid, $DB){
+    $ids = [$parentId];
+    $children = $DB->getAll("SELECT id FROM pre_folder WHERE parent_id=:parent_id AND uid=:uid", [':parent_id'=>$parentId, ':uid'=>$uid]);
+    foreach($children as $child){
+        $ids = array_merge($ids, getShareSubFolderIds($child['id'], $uid, $DB));
+    }
+    return $ids;
+}
+
+$rootFolderId = $share['folder_id'];
+$currentFolderId = isset($_GET['fid'])?intval($_GET['fid']):$rootFolderId;
+
+if($currentFolderId != $rootFolderId){
+    $allSubIds = getShareSubFolderIds($rootFolderId, $share['uid'], $DB);
+    if(!in_array($currentFolderId, $allSubIds)){
+        $currentFolderId = $rootFolderId;
+    }
+}
+
+$currentFolder = $DB->getRow("SELECT * FROM pre_folder WHERE id=:id", [':id'=>$currentFolderId]);
+
+$subFolders = [];
+$files = [];
+$breadcrumb = [];
+
 if($isVerified){
-    $files = $DB->getAll("SELECT id, name, type, size, hash, addtime, count FROM pre_file WHERE folder_id=:folder_id ORDER BY id DESC", [':folder_id'=>$share['folder_id']]);
+    $subFolders = $DB->getAll("SELECT id, name, addtime FROM pre_folder WHERE parent_id=:parent_id AND uid=:uid ORDER BY id DESC", [':parent_id'=>$currentFolderId, ':uid'=>$share['uid']]);
+    $files = $DB->getAll("SELECT id, name, type, size, hash, addtime, count FROM pre_file WHERE folder_id=:folder_id ORDER BY id DESC", [':folder_id'=>$currentFolderId]);
+
+    $fid = $currentFolderId;
+    while($fid > 0){
+        $row = $DB->getRow("SELECT * FROM pre_folder WHERE id=:id AND uid=:uid", [':id'=>$fid, ':uid'=>$share['uid']]);
+        if(!$row) break;
+        array_unshift($breadcrumb, ['id'=>$row['id'], 'name'=>$row['name']]);
+        $fid = $row['parent_id'];
+    }
+    $rootIndex = -1;
+    foreach($breadcrumb as $i => $b){
+        if($b['id'] == $rootFolderId){
+            $rootIndex = $i;
+            break;
+        }
+    }
+    if($rootIndex >= 0){
+        $breadcrumb = array_slice($breadcrumb, $rootIndex);
+    }
 }
 ?>
 <style>
@@ -90,6 +134,14 @@ if($isVerified){
 
 <div id="fileListContainer" <?php echo !$isVerified?'style="display:none;"':''?>>
 <?php if($isVerified){ ?>
+    <?php if(count($breadcrumb) > 0){ ?>
+    <div class="share-breadcrumb" style="background:#f5f5f5; padding:8px 15px; border-radius:4px; margin-bottom:15px;">
+        <?php foreach($breadcrumb as $i => $b){ ?>
+            <?php if($i > 0) echo ' / '; ?>
+            <a href="?token=<?php echo htmlspecialchars($token)?>&fid=<?php echo $b['id']?><?php echo !empty($urlPwd)?'&pwd='.htmlspecialchars($urlPwd):''?>" style="color:#337ab7;"><?php echo htmlspecialchars($b['name'])?></a>
+        <?php } ?>
+    </div>
+    <?php } ?>
     <div class="well bs-component">
         <div class="table-responsive">
             <table class="table table-striped table-hover file-list-table">
@@ -105,7 +157,19 @@ if($isVerified){
                 </thead>
                 <tbody>
 <?php
-if(count($files) > 0){
+$hasContent = count($subFolders) > 0 || count($files) > 0;
+if($hasContent){
+    foreach($subFolders as $sf){
+        $folderLink = '?token='.htmlspecialchars($token).'&fid='.$sf['id'].(!empty($urlPwd)?'&pwd='.htmlspecialchars($urlPwd):'');
+        echo '<tr>';
+        echo '<td><i class="fa fa-folder fa-fw" style="color:#f0ad4e;"></i> <a href="'.$folderLink.'">'.htmlspecialchars($sf['name']).'</a></td>';
+        echo '<td>-</td>';
+        echo '<td>文件夹</td>';
+        echo '<td>'.$sf['addtime'].'</td>';
+        echo '<td>-</td>';
+        echo '<td><a href="'.$folderLink.'" class="btn btn-xs btn-warning"><i class="fa fa-folder-open"></i> 进入</a></td>';
+        echo '</tr>';
+    }
     foreach($files as $f){
         $downurl = './down.php/'.$f['hash'].'.'.($f['type']?$f['type']:'file');
         $viewurl = './file.php?hash='.$f['hash'];
@@ -119,7 +183,7 @@ if(count($files) > 0){
         echo '</tr>';
     }
 }else{
-    echo '<tr><td colspan="6" class="empty-tip"><i class="fa fa-folder-open-o" style="font-size:48px;"></i><p>该文件夹下没有文件</p></td></tr>';
+    echo '<tr><td colspan="6" class="empty-tip"><i class="fa fa-folder-open-o" style="font-size:48px;"></i><p>该文件夹下没有内容</p></td></tr>';
 }
 ?>
                 </tbody>
@@ -139,6 +203,7 @@ function escapeHtml(text){
 }
 
 var shareToken = '<?php echo htmlspecialchars($token)?>';
+var currentFid = <?php echo intval($currentFolderId); ?>;
 <?php if($isVerified){ ?>
 window._sharePwd = '<?php echo htmlspecialchars($urlPwd)?>';
 <?php } ?>
@@ -187,24 +252,42 @@ function sizeFormat(size){
     return size.toFixed(2) + ' GB';
 }
 
-function renderFileList(files){
+function renderContent(data){
     var html = '<div class="well bs-component"><div class="table-responsive"><table class="table table-striped table-hover file-list-table"><thead><tr><th>文件名</th><th>大小</th><th>格式</th><th>上传时间</th><th>下载次数</th><th>操作</th></tr></thead><tbody>';
-    if(files && files.length > 0){
-        for(var i = 0; i < files.length; i++){
-            var f = files[i];
-            var downurl = './down.php/' + f.hash + '.' + (f.type ? f.type : 'file');
-            var viewurl = './file.php?hash=' + f.hash;
-            html += '<tr>';
-            html += '<td><i class="fa ' + typeToIcon(f.type) + ' fa-fw"></i> <a href="' + viewurl + '" target="_blank">' + escapeHtml(f.name) + '</a></td>';
-            html += '<td>' + sizeFormat(f.size) + '</td>';
-            html += '<td>' + (f.type ? f.type : '未知') + '</td>';
-            html += '<td>' + f.addtime + '</td>';
-            html += '<td>' + f.count + '</td>';
-            html += '<td><a href="' + downurl + '" class="btn btn-xs btn-primary"><i class="fa fa-download"></i> 下载</a></td>';
-            html += '</tr>';
+    var hasContent = (data.folders && data.folders.length > 0) || (data.files && data.files.length > 0);
+    if(hasContent){
+        if(data.folders && data.folders.length > 0){
+            for(var i = 0; i < data.folders.length; i++){
+                var f = data.folders[i];
+                var link = '?token=' + encodeURIComponent(shareToken) + '&fid=' + f.id;
+                if(window._sharePwd) link += '&pwd=' + encodeURIComponent(window._sharePwd);
+                html += '<tr>';
+                html += '<td><i class="fa fa-folder fa-fw" style="color:#f0ad4e;"></i> <a href="' + link + '">' + escapeHtml(f.name) + '</a></td>';
+                html += '<td>-</td>';
+                html += '<td>文件夹</td>';
+                html += '<td>' + f.addtime + '</td>';
+                html += '<td>-</td>';
+                html += '<td><a href="' + link + '" class="btn btn-xs btn-warning"><i class="fa fa-folder-open"></i> 进入</a></td>';
+                html += '</tr>';
+            }
+        }
+        if(data.files && data.files.length > 0){
+            for(var i = 0; i < data.files.length; i++){
+                var f = data.files[i];
+                var downurl = './down.php/' + f.hash + '.' + (f.type ? f.type : 'file');
+                var viewurl = './file.php?hash=' + f.hash;
+                html += '<tr>';
+                html += '<td><i class="fa ' + typeToIcon(f.type) + ' fa-fw"></i> <a href="' + viewurl + '" target="_blank">' + escapeHtml(f.name) + '</a></td>';
+                html += '<td>' + sizeFormat(f.size) + '</td>';
+                html += '<td>' + (f.type ? f.type : '未知') + '</td>';
+                html += '<td>' + f.addtime + '</td>';
+                html += '<td>' + f.count + '</td>';
+                html += '<td><a href="' + downurl + '" class="btn btn-xs btn-primary"><i class="fa fa-download"></i> 下载</a></td>';
+                html += '</tr>';
+            }
         }
     }else{
-        html += '<tr><td colspan="6" class="empty-tip"><i class="fa fa-folder-open-o" style="font-size:48px;"></i><p>该文件夹下没有文件</p></td></tr>';
+        html += '<tr><td colspan="6" class="empty-tip"><i class="fa fa-folder-open-o" style="font-size:48px;"></i><p>该文件夹下没有内容</p></td></tr>';
     }
     html += '</tbody></table></div></div>';
     $('#fileListContainer').html(html).show();
@@ -220,14 +303,15 @@ function checkSharePwd(){
     var ii = layer.load(1, {shade:[0.1,'#fff']});
     $.post('ajax.php?act=checkSharePwd', {
         token: shareToken,
-        pwd: pwd
+        pwd: pwd,
+        fid: currentFid
     }, function(res){
         layer.close(ii);
         if(res.code == 0){
             window._sharePwd = pwd;
             $('#pwdBox').hide();
             $('#saveShareBtn').show();
-            renderFileList(res.files);
+            renderContent(res);
         }else{
             $('#pwdError').show();
         }

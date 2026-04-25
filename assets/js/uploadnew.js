@@ -15,6 +15,7 @@ new Vue({
         progress_tip: '',
         filename: '',
         uploadspeed: '',
+        speedHistory: [],
         input: {
             csrf_token:'',
             ispwd: false,
@@ -109,6 +110,7 @@ new Vue({
             this.input.size = file.size;
             this.progress = 0;
             this.loaded_size = 0;
+            this.speedHistory = [];
             this.showtype = 1;
             this.beginTime = new Date().getTime();
 
@@ -276,8 +278,6 @@ new Vue({
         },
         async uploadPart(file, chunk){ //上传文件分片
             var that = this;
-            var tempTime = new Date().getTime();
-            var oloaded = 0;
             return new Promise((resolve, reject) => {
                 var data = new FormData();
                 data.append('file', file);
@@ -308,19 +308,15 @@ new Vue({
                     xhr: function() {
                         var xhr = new XMLHttpRequest();
                         xhr.upload.addEventListener('progress', function (e) {
-                            var progressRate = Math.round((e.loaded + that.loaded_size) / that.input.size * 100);
+                            var totalLoaded = e.loaded + that.loaded_size;
+                            var progressRate = Math.round(totalLoaded / that.input.size * 100);
                             if(progressRate>100)progressRate=100;
                             that.progress = progressRate;
                             if(progressRate == 100) that.progress_tip = '正在保存中，请稍候'
 
-                            //上传速度计算
+                            //上传速度计算（滑动窗口平均）
                             var nowTime = new Date().getTime();
-                            var pertime = (nowTime - tempTime) / 1000;
-                            tempTime = nowTime;
-                            var perload = e.loaded - oloaded;
-                            oloaded = e.loaded;
-	                        var speed = that.size_format(perload/pertime)+'/s';
-                            that.uploadspeed = speed
+                            that.updateSpeed(nowTime, totalLoaded);
                         })
                         return xhr;
                     }
@@ -329,8 +325,6 @@ new Vue({
         },
         async uploadThird(url, postdata, file){ //第三方上传文件
             var that = this;
-            var tempTime = new Date().getTime();
-            var oloaded = 0;
             return new Promise((resolve, reject) => {
                 var data = new FormData();
                 for(key in postdata){
@@ -356,19 +350,15 @@ new Vue({
                     xhr: function() {
                         var xhr = new XMLHttpRequest();
                         xhr.upload.addEventListener('progress', function (e) {
-                            var progressRate = Math.round((e.loaded + that.loaded_size) / that.input.size * 100);
+                            var totalLoaded = e.loaded + that.loaded_size;
+                            var progressRate = Math.round(totalLoaded / that.input.size * 100);
                             if(progressRate>100)progressRate=100;
                             that.progress = progressRate;
                             if(progressRate == 100) that.progress_tip = '正在保存中，请稍候'
 
-                            //上传速度计算
+                            //上传速度计算（滑动窗口平均）
                             var nowTime = new Date().getTime();
-                            var pertime = (nowTime - tempTime) / 1000;
-                            tempTime = nowTime;
-                            var perload = e.loaded - oloaded;
-                            oloaded = e.loaded;
-	                        var speed = that.size_format(perload/pertime)+'/s';
-                            that.uploadspeed = speed
+                            that.updateSpeed(nowTime, totalLoaded);
                         })
                         return xhr;
                     }
@@ -417,6 +407,23 @@ new Vue({
             }
             this.show_msg('上传成功！总用时：'+lastTime.toFixed(2)+'秒。正在跳转到文件查看页面...');
             setTimeout(function(){ window.location.href=jumpurl; }, 800);
+        },
+        updateSpeed(currentTime, totalLoaded){
+            this.speedHistory.push({time: currentTime, loaded: totalLoaded});
+            // 移除超过3秒的旧样本
+            while(this.speedHistory.length > 0 && currentTime - this.speedHistory[0].time > 3000) {
+                this.speedHistory.shift();
+            }
+            // 计算平均速度（使用最早可用的样本，至少2个样本）
+            if(this.speedHistory.length >= 2) {
+                var first = this.speedHistory[0];
+                var timeDiff = (currentTime - first.time) / 1000;
+                var loadedDiff = totalLoaded - first.loaded;
+                if(timeDiff > 0.1) {
+                    var speed = loadedDiff / timeDiff;
+                    this.uploadspeed = this.size_format(speed) + '/s';
+                }
+            }
         },
         size_format(size){
             var units = 'B';

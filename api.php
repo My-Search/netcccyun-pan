@@ -74,6 +74,35 @@ if($conf['name_block']){
 	}
 }
 $hash = md5_file($_FILES['file']['tmp_name']);
+$folder_id = 0; // API 上传目前不支持目录
+
+// 检查同名文件（覆盖逻辑）
+$existing = $DB->getRow("SELECT * FROM pre_file WHERE uid=:uid AND folder_id=:folder_id AND name=:name", [':uid'=>($uid?$uid:0), ':folder_id'=>$folder_id, ':name'=>$name]);
+if($existing && $existing['hash'] == $hash){
+	unset($_SESSION['csrf_token']);
+	$downurl = $siteurl.'down.php/'.$existing['hash'].'.'.$existing['type'];
+	if(!empty($existing['pwd']))$downurl .= '&'.$existing['pwd'];
+	$result = ['code'=>0, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$existing['id'], 'downurl'=>$downurl];
+	if(is_view($existing['type']))$result['viewurl'] = $siteurl.'view.php/'.$hash.'.'.$existing['type'];
+	showresult($result);
+}
+if($existing && $existing['hash'] != $hash){
+	// 需要覆盖
+	$old_hash = $existing['hash'];
+	$result = $stor->upload($hash, $_FILES['file']['tmp_name'], minetype($ext));
+	if(!$result)showresult(['code'=>-1, 'msg'=>'文件上传失败', 'error'=>'stor']);
+	$DB->exec("UPDATE pre_file SET hash=:hash, size=:size, type=:type, addtime=NOW(), ip=:ip, pwd=:pwd WHERE id=:id", [':hash'=>$hash, ':size'=>$size, ':type'=>$ext, ':ip'=>$clientip, ':pwd'=>$pwd, ':id'=>$existing['id']]);
+	$refCount = $DB->getColumn("SELECT count(*) FROM pre_file WHERE hash=:hash", [':hash'=>$old_hash]);
+	if(intval($refCount) === 0){
+		$stor->delete($old_hash);
+	}
+	$downurl = $siteurl.'down.php/'.$hash.'.'.$ext;
+	if(!empty($pwd))$downurl .= '&'.$pwd;
+	$result = ['code'=>0, 'msg'=>'文件更新成功', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$existing['id'], 'downurl'=>$downurl];
+	if(is_view($ext))$result['viewurl'] = $siteurl.'view.php/'.$hash.'.'.$ext;
+	showresult($result);
+}
+
 $row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
 if($row){
 	unset($_SESSION['csrf_token']);

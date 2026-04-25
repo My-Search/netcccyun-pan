@@ -51,11 +51,31 @@ class Local implements IStorage {
 	}
 
 	public function upload($name, $tmpfile, $content_type = null) {
-		return move_uploaded_file($tmpfile, $this->path.$name);
+		$target = $this->path . $name;
+		// 先写入临时文件，再通过原子重命名覆盖，保证事务安全
+		$temp = $target . '.tmp.' . uniqid('', true);
+		if (!move_uploaded_file($tmpfile, $temp)) {
+			return false;
+		}
+		if (!rename($temp, $target)) {
+			@unlink($temp);
+			return false;
+		}
+		return true;
 	}
 
 	public function savefile($name, $tmpfile, $content_type = null) {
-		return rename($tmpfile, $this->path.$name);
+		$target = $this->path . $name;
+		// 先写入临时文件，再通过原子重命名覆盖，保证事务安全
+		$temp = $target . '.tmp.' . uniqid('', true);
+		if (!copy($tmpfile, $temp)) {
+			return false;
+		}
+		if (!rename($temp, $target)) {
+			@unlink($temp);
+			return false;
+		}
+		return true;
 	}
 
 	public function getinfo($name) {

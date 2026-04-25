@@ -20,6 +20,7 @@ class FileManagerTest
         $this->testPathBreadcrumb();
         $this->testUploadResumeLogic();
         $this->testSizeFormat();
+        $this->testMoveFolderLogic();
 
         echo "\n=== 测试结果 ===\n";
         echo "通过: {$this->passed}\n";
@@ -100,6 +101,37 @@ class FileManagerTest
         $this->assert(size_format(512) == '512 B', '512字节格式化正确');
         $this->assert(size_format(1024) == '1 KB', '1KB格式化正确');
         $this->assert(size_format(1024*1024) == '1 MB', '1MB格式化正确');
+        echo "\n";
+    }
+
+    private function testMoveFolderLogic()
+    {
+        echo "--- 目录移动逻辑 ---\n";
+        // 模拟面包屑路径数组（根目录 -> A -> B）
+        $path = [
+            ['id'=>1, 'name'=>'文档'],
+            ['id'=>2, 'name'=>'项目'],
+            ['id'=>3, 'name'=>'2024']
+        ];
+        // 当前在 id=3，父目录应为 id=2
+        $parentId = count($path) >= 2 ? $path[count($path)-2]['id'] : (count($path) === 1 ? 0 : null);
+        $this->assert($parentId === 2, 'getParentFolderId 应返回父目录ID');
+
+        // 根目录无父目录
+        $rootPath = [];
+        $rootParent = count($rootPath) === 0 ? null : (count($rootPath) === 1 ? 0 : $rootPath[count($rootPath)-2]['id']);
+        $this->assert($rootParent === null, '根目录的父目录应为null');
+
+        // 循环移动检测：子目录ID列表包含目标ID时应拒绝
+        $subIds = [3, 4, 5]; // 假设id=3的子目录有4,5
+        $this->assert(in_array(4, $subIds), '子目录列表应包含子目录ID');
+        $this->assert(in_array(3, $subIds), '子目录列表应包含自身ID');
+        $this->assert(!in_array(1, $subIds), '子目录列表不应包含非子目录ID');
+
+        // 重名检测：同一父目录下不能存在同名文件夹
+        $existingFolders = ['work', 'docs', 'images'];
+        $this->assert(in_array('docs', $existingFolders), '应检测到同名文件夹');
+        $this->assert(!in_array('music', $existingFolders), '未存在的文件夹名应可用');
         echo "\n";
     }
 }

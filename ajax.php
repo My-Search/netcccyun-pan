@@ -122,6 +122,36 @@ function getSubFolderIds($parentId, $uid, $DB){
 	return $ids;
 }
 
+function getShareFolderTree($parentId, $uid, $DB){
+	$folders = $DB->getAll("SELECT id, name, parent_id FROM pre_folder WHERE parent_id=:parent_id AND uid=:uid", [':parent_id'=>$parentId, ':uid'=>$uid]);
+	$result = [];
+	foreach($folders as $f){
+		$f['children'] = getShareFolderTree($f['id'], $uid, $DB);
+		$result[] = $f;
+	}
+	return $result;
+}
+
+function createFoldersRecursively($folders, $targetParentId, $uid, $DB, &$map){
+	foreach($folders as $f){
+		$exist = $DB->getRow("SELECT * FROM pre_folder WHERE uid=:uid AND parent_id=:parent_id AND name=:name", [':uid'=>$uid, ':parent_id'=>$targetParentId, ':name'=>$f['name']]);
+		if($exist){
+			$newId = $exist['id'];
+		} else {
+			$newId = $DB->insert('folder', [
+				'uid' => $uid,
+				'parent_id' => $targetParentId,
+				'name' => $f['name'],
+				'addtime' => 'NOW()',
+			]);
+		}
+		$map[$f['id']] = $newId;
+		if(!empty($f['children'])){
+			createFoldersRecursively($f['children'], $newId, $uid, $DB, $map);
+		}
+	}
+}
+
 switch($act){
 case 'pre_upload':
 	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
@@ -193,8 +223,39 @@ case 'pre_upload':
 			exit('{"code":-1,"msg":"你今天上传文件的数量已超过限制"}');
 		}
 	}
+	$overwrite_id = null;
+	$old_hash = null;
+
+	// 检查当前目录同名文件（覆盖逻辑）
+	$existing = $DB->getRow("SELECT * FROM pre_file WHERE uid=:uid AND folder_id=:folder_id AND name=:name", [':uid'=>$uid, ':folder_id'=>$folder_id, ':name'=>$name]);
+	if($existing && $existing['hash'] == $hash){
+		// 完全相同的文件，秒传（保留原记录）
+		$result = ['code'=>1, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$existing['id']];
+		exit(json_encode($result));
+	}
+	if($existing && $existing['hash'] != $hash){
+		// 同名但内容不同，需要覆盖
+		$hash_exists = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
+		if($hash_exists){
+			// 新 hash 物理文件已存在，直接更新数据库记录
+			$old_hash = $existing['hash'];
+			$file_id = $existing['id'];
+			$DB->exec("UPDATE pre_file SET hash=:hash, size=:size, type=:type, addtime=NOW(), ip=:ip, pwd=:pwd WHERE id=:id", [':hash'=>$hash, ':size'=>$size, ':type'=>$ext, ':ip'=>$clientip, ':pwd'=>$pwd, ':id'=>$file_id]);
+			$refCount = $DB->getColumn("SELECT count(*) FROM pre_file WHERE hash=:hash", [':hash'=>$old_hash]);
+			if(intval($refCount) === 0){
+				$stor->delete($old_hash);
+			}
+			$result = ['code'=>1, 'msg'=>'文件更新成功', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$file_id];
+			exit(json_encode($result));
+		}
+		// 新 hash 不存在，需要上传，记录覆盖信息
+		$overwrite_id = $existing['id'];
+		$old_hash = $existing['hash'];
+	}
+
+	// 检查全站 hash（秒传）
 	$row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
-	if($row){
+	if($row && empty($overwrite_id)){
 		$result = ['code'=>1, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$row['id']];
 		exit(json_encode($result));
 	}
@@ -209,7 +270,9 @@ case 'pre_upload':
 			'size' => $size,
 			'ext' => $ext,
 			'pwd' => $pwd,
-			'folder_id' => $folder_id
+			'folder_id' => $folder_id,
+			'overwrite_id' => $overwrite_id,
+			'old_hash' => $old_hash
 		];
 		$result = ['code'=>0, 'third'=>true, 'hash'=>$hash, 'url'=>$param['url'], 'post'=>$param['post']];
 		exit(json_encode($result));
@@ -223,7 +286,9 @@ case 'pre_upload':
 			'size' => $size,
 			'ext' => $ext,
 			'pwd' => $pwd,
-			'folder_id' => $folder_id
+			'folder_id' => $folder_id,
+			'overwrite_id' => $overwrite_id,
+			'old_hash' => $old_hash
 		];
 		$result = ['code'=>0, 'third'=>false, 'hash'=>$hash, 'chunksize'=>$chunksize, 'chunks'=>$chunks];
 		exit(json_encode($result));
@@ -297,6 +362,20 @@ case 'upload_part':
 	$pwd = $_SESSION['upload']['pwd'];
 	$folder_id = $_SESSION['upload']['folder_id'];
 
+	// 同名覆盖逻辑
+	if(!empty($_SESSION['upload']['overwrite_id'])){
+		$overwrite_id = $_SESSION['upload']['overwrite_id'];
+		$old_hash = $_SESSION['upload']['old_hash'];
+		$DB->exec("UPDATE pre_file SET hash=:hash, size=:size, type=:type, addtime=NOW(), ip=:ip, pwd=:pwd WHERE id=:id", [':hash'=>$hash, ':size'=>$size, ':type'=>$ext, ':ip'=>$clientip, ':pwd'=>$pwd, ':id'=>$overwrite_id]);
+		$refCount = $DB->getColumn("SELECT count(*) FROM pre_file WHERE hash=:hash", [':hash'=>$old_hash]);
+		if(intval($refCount) === 0){
+			$stor->delete($old_hash);
+		}
+		unset($_SESSION['upload']);
+		$result = ['code'=>1, 'msg'=>'文件更新成功', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$overwrite_id];
+		exit(json_encode($result));
+	}
+
 	$row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
 	if($row){
 		unset($_SESSION['upload']);
@@ -351,6 +430,20 @@ case 'complete_upload':
 	$ext = $_SESSION['upload']['ext'];
 	$pwd = $_SESSION['upload']['pwd'];
 	$folder_id = $_SESSION['upload']['folder_id'];
+
+	// 同名覆盖逻辑
+	if(!empty($_SESSION['upload']['overwrite_id'])){
+		$overwrite_id = $_SESSION['upload']['overwrite_id'];
+		$old_hash = $_SESSION['upload']['old_hash'];
+		$DB->exec("UPDATE pre_file SET hash=:hash, size=:size, type=:type, addtime=NOW(), ip=:ip, pwd=:pwd WHERE id=:id", [':hash'=>$hash, ':size'=>$size, ':type'=>$ext, ':ip'=>$clientip, ':pwd'=>$pwd, ':id'=>$overwrite_id]);
+		$refCount = $DB->getColumn("SELECT count(*) FROM pre_file WHERE hash=:hash", [':hash'=>$old_hash]);
+		if(intval($refCount) === 0){
+			$stor->delete($old_hash);
+		}
+		unset($_SESSION['upload']);
+		$result = ['code'=>1, 'msg'=>'文件更新成功', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$overwrite_id];
+		exit(json_encode($result));
+	}
 
 	$row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
 	if($row){
@@ -566,8 +659,17 @@ case 'checkSharePwd':
 	if(!empty($share['pwd']) && $share['pwd'] != $pwd){
 		exit('{"code":-1,"msg":"密码错误"}');
 	}
-	$files = $DB->getAll("SELECT id, name, type, size, hash, addtime, count FROM pre_file WHERE folder_id=:folder_id ORDER BY id DESC", [':folder_id'=>$share['folder_id']]);
-	exit(json_encode(['code'=>0, 'files'=>$files]));
+	$rootFolderId = $share['folder_id'];
+	$currentFolderId = isset($_POST['fid'])?intval($_POST['fid']):$rootFolderId;
+	if($currentFolderId != $rootFolderId){
+		$allSubIds = getSubFolderIds($rootFolderId, $share['uid'], $DB);
+		if(!in_array($currentFolderId, $allSubIds)){
+			exit('{"code":-1,"msg":"目录不存在"}');
+		}
+	}
+	$folders = $DB->getAll("SELECT id, name, addtime FROM pre_folder WHERE parent_id=:parent_id AND uid=:uid ORDER BY id DESC", [':parent_id'=>$currentFolderId, ':uid'=>$share['uid']]);
+	$files = $DB->getAll("SELECT id, name, type, size, hash, addtime, count FROM pre_file WHERE folder_id=:folder_id ORDER BY id DESC", [':folder_id'=>$currentFolderId]);
+	exit(json_encode(['code'=>0, 'files'=>$files, 'folders'=>$folders]));
 break;
 
 case 'saveShare':
@@ -587,13 +689,24 @@ case 'saveShare':
 		$frow = $DB->getRow("SELECT * FROM pre_folder WHERE id=:id AND uid=:uid", [':id'=>$folder_id, ':uid'=>$uid]);
 		if(!$frow)exit('{"code":-1,"msg":"目标目录不存在"}');
 	}
-	$files = $DB->getAll("SELECT * FROM pre_file WHERE folder_id=:folder_id", [':folder_id'=>$share['folder_id']]);
+
+	// 获取分享的完整文件夹树并递归创建
+	$tree = getShareFolderTree($share['folder_id'], $share['uid'], $DB);
+	$folderMap = [];
+	$folderMap[$share['folder_id']] = $folder_id;
+	createFoldersRecursively($tree, $folder_id, $uid, $DB, $folderMap);
+
+	// 获取所有分享目录下的文件（根+所有子目录）
+	$allFolderIds = array_keys($folderMap);
+	$placeholders = implode(',', array_fill(0, count($allFolderIds), '?'));
+	$files = $DB->getAll("SELECT * FROM pre_file WHERE folder_id IN ($placeholders)", $allFolderIds);
 	if(count($files) == 0)exit('{"code":-1,"msg":"该分享下没有文件"}');
 	$savedCount = 0;
 	foreach($files as $f){
-		$exist = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash AND uid=:uid AND folder_id=:folder_id", [':hash'=>$f['hash'], ':uid'=>$uid, ':folder_id'=>$folder_id]);
+		$targetFolderId = isset($folderMap[$f['folder_id']]) ? $folderMap[$f['folder_id']] : $folder_id;
+		$exist = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash AND uid=:uid AND folder_id=:folder_id", [':hash'=>$f['hash'], ':uid'=>$uid, ':folder_id'=>$targetFolderId]);
 		if($exist) continue;
-		$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id)", [':name'=>$f['name'], ':type'=>$f['type'], ':size'=>$f['size'], ':hash'=>$f['hash'], ':ip'=>$clientip, ':pwd'=>null, ':uid'=>$uid, ':folder_id'=>$folder_id]);
+		$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id)", [':name'=>$f['name'], ':type'=>$f['type'], ':size'=>$f['size'], ':hash'=>$f['hash'], ':ip'=>$clientip, ':pwd'=>null, ':uid'=>$uid, ':folder_id'=>$targetFolderId]);
 		if($sds) $savedCount++;
 	}
 	exit(json_encode(['code'=>0, 'msg'=>'转存成功，共转存'.$savedCount.'个文件', 'count'=>$savedCount]));
@@ -605,6 +718,33 @@ case 'deleteShare':
 	if($id<=0)exit('{"code":-1,"msg":"参数错误"}');
 	$DB->exec("DELETE FROM pre_share WHERE id=:id AND uid=:uid", [':id'=>$id, ':uid'=>$uid]);
 	exit(json_encode(['code'=>0, 'msg'=>'删除成功']));
+break;
+
+case 'listMyShares':
+	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
+	$shares = $DB->getAll("SELECT s.id, s.token, s.folder_id, s.pwd, s.addtime, s.views, f.name as folder_name FROM pre_share s LEFT JOIN pre_folder f ON s.folder_id=f.id WHERE s.uid=:uid ORDER BY s.id DESC", [':uid'=>$uid]);
+	foreach($shares as &$share){
+		$share['shareurl'] = $siteurl.'share.php?token='.$share['token'];
+		$share['has_pwd'] = !empty($share['pwd']);
+	}
+	exit(json_encode(['code'=>0, 'data'=>$shares]));
+break;
+
+case 'updateSharePwd':
+	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
+	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	$id = isset($_POST['id'])?intval($_POST['id']):0;
+	$pwd = isset($_POST['pwd'])?trim(htmlspecialchars($_POST['pwd'])):'';
+	if($id<=0)exit('{"code":-1,"msg":"参数错误"}');
+	$row = $DB->getRow("SELECT * FROM pre_share WHERE id=:id AND uid=:uid", [':id'=>$id, ':uid'=>$uid]);
+	if(!$row)exit('{"code":-1,"msg":"分享不存在"}');
+	if(!empty($pwd)){
+		if(!preg_match('/^[a-zA-Z0-9]+$/', $pwd)){
+			exit('{"code":-1,"msg":"密码只能为字母和数字"}');
+		}
+	}
+	$DB->exec("UPDATE pre_share SET pwd=:pwd WHERE id=:id", [':pwd'=>!empty($pwd)?$pwd:null, ':id'=>$id]);
+	exit(json_encode(['code'=>0, 'msg'=>'密码修改成功']));
 break;
 
 case 'getUserStats':
@@ -771,6 +911,26 @@ case 'updateProfile':
 	exit(json_encode(['code'=>0, 'msg'=>'保存成功']));
 break;
 
+case 'moveFolder':
+	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
+	$id = isset($_POST['id'])?intval($_POST['id']):0;
+	$parent_id = isset($_POST['parent_id'])?intval($_POST['parent_id']):0;
+	if($id<=0)exit('{"code":-1,"msg":"参数错误"}');
+	$row = $DB->getRow("SELECT * FROM pre_folder WHERE id=:id AND uid=:uid", [':id'=>$id, ':uid'=>$uid]);
+	if(!$row)exit('{"code":-1,"msg":"目录不存在"}');
+	if($parent_id>0){
+		$prow = $DB->getRow("SELECT * FROM pre_folder WHERE id=:id AND uid=:uid", [':id'=>$parent_id, ':uid'=>$uid]);
+		if(!$prow)exit('{"code":-1,"msg":"目标目录不存在"}');
+	}
+	if($row['parent_id']==$parent_id)exit('{"code":-1,"msg":"目录已在目标位置"}');
+	$subIds = getSubFolderIds($id, $uid, $DB);
+	if(in_array($parent_id, $subIds))exit('{"code":-1,"msg":"不能将目录移动到自身或其子目录下"}');
+	$exists = $DB->getRow("SELECT * FROM pre_folder WHERE uid=:uid AND parent_id=:parent_id AND name=:name AND id!=:id", [':uid'=>$uid, ':parent_id'=>$parent_id, ':name'=>$row['name'], ':id'=>$id]);
+	if($exists)exit('{"code":-1,"msg":"目标目录下已存在同名文件夹"}');
+	$DB->update('folder', ['parent_id'=>$parent_id], ['id'=>$id]);
+	exit(json_encode(['code'=>0, 'msg'=>'移动成功']));
+break;
+
 case 'getFileContent':
 	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
 	$hash = isset($_GET['hash'])?trim($_GET['hash']):'';
@@ -788,6 +948,10 @@ case 'getFileContent':
 	$content = $stor->get($hash);
 	if($content === false){
 		exit('{"code":-1,"msg":"读取文件内容失败"}');
+	}
+	// 清理无效的 UTF-8 字节，避免加密/二进制内容导致 json_encode 失败
+	if (function_exists('iconv')) {
+		$content = @iconv('UTF-8', 'UTF-8//IGNORE', $content);
 	}
 	exit(json_encode(['code'=>0, 'content'=>$content, 'name'=>$row['name'], 'type'=>$row['type']]));
 break;
