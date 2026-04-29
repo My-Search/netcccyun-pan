@@ -21,6 +21,8 @@ class FileManagerTest
         $this->testUploadResumeLogic();
         $this->testSizeFormat();
         $this->testMoveFolderLogic();
+        $this->testMineViewFolderUrlPersistence();
+        $this->testMineViewRefreshesAfterEachUploadCompletion();
 
         echo "\n=== 测试结果 ===\n";
         echo "通过: {$this->passed}\n";
@@ -132,6 +134,30 @@ class FileManagerTest
         $existingFolders = ['work', 'docs', 'images'];
         $this->assert(in_array('docs', $existingFolders), '应检测到同名文件夹');
         $this->assert(!in_array('music', $existingFolders), '未存在的文件夹名应可用');
+        echo "\n";
+    }
+
+    private function testMineViewFolderUrlPersistence()
+    {
+        echo "--- 我的文件目录位置刷新保持 ---\n";
+        $view = file_get_contents(__DIR__ . '/../includes/mine_view.php');
+
+        $this->assert(strpos($view, "loadFolder(getInitialFolderId(), {replaceUrl:true})") !== false, '页面初始化应从URL读取目录ID');
+        $this->assert(strpos($view, "params.set('folder_id', normalizedFolderId)") !== false, '进入子目录时应写入folder_id参数');
+        $this->assert(strpos($view, "params.delete('folder_id')") !== false, '回到根目录时应移除folder_id参数');
+        $this->assert(strpos($view, "window.addEventListener('popstate'") !== false, '浏览器前进后退应重新加载对应目录');
+        echo "\n";
+    }
+
+    private function testMineViewRefreshesAfterEachUploadCompletion()
+    {
+        echo "--- 我的文件单文件上传完成刷新 ---\n";
+        $view = file_get_contents(__DIR__ . '/../includes/mine_view.php');
+
+        $this->assert(strpos($view, 'function refreshCurrentUploadFolder()') !== false, '应提供上传完成后的当前目录刷新函数');
+        $this->assert(strpos($view, 'loadFolder(currentFolderId, {updateUrl:false})') !== false, '上传完成刷新应保持当前URL目录状态');
+        $this->assert(substr_count($view, 'refreshCurrentUploadFolder();') >= 3, '秒传、普通上传完成、服务端完成响应均应触发刷新');
+        $this->assert(strpos($view, '文件上传完成，请刷新页面查看最新文件') === false, '上传完成后不应再要求用户手动刷新查看最新文件');
         echo "\n";
     }
 }

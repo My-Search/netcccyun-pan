@@ -108,6 +108,42 @@ function getUrlParam(name){
     if(r!=null) return decodeURIComponent(r[2]); return null;
 }
 
+function normalizeFolderId(folder_id){
+    var parsed = parseInt(folder_id, 10);
+    return isNaN(parsed) || parsed < 0 ? 0 : parsed;
+}
+
+function getInitialFolderId(){
+    var folderId = getUrlParam('folder_id');
+    if(folderId === null) folderId = getUrlParam('folder');
+    if(folderId === null) folderId = getUrlParam('fid');
+    return normalizeFolderId(folderId);
+}
+
+function updateFolderUrl(folder_id, replace){
+    if(!window.history || !window.history.pushState) return;
+
+    var normalizedFolderId = normalizeFolderId(folder_id);
+    var params = new URLSearchParams(window.location.search);
+    if(normalizedFolderId > 0){
+        params.set('folder_id', normalizedFolderId);
+    }else{
+        params.delete('folder_id');
+    }
+    params.delete('folder');
+    params.delete('fid');
+
+    var query = params.toString();
+    var newUrl = window.location.pathname + (query ? '?' + query : '') + window.location.hash;
+    if(newUrl === window.location.pathname + window.location.search + window.location.hash) return;
+
+    if(replace){
+        window.history.replaceState({folder_id: normalizedFolderId}, '', newUrl);
+    }else{
+        window.history.pushState({folder_id: normalizedFolderId}, '', newUrl);
+    }
+}
+
 function getTypeLabel(type){
     var map = {'image':'图片','video':'视频','audio':'音乐','document':'文档','other':'其他'};
     return map[type] || type;
@@ -115,7 +151,10 @@ function getTypeLabel(type){
 
 $(function(){
     currentFilterType = getUrlParam('type') || '';
-    loadFolder(0);
+    loadFolder(getInitialFolderId(), {replaceUrl:true});
+    window.addEventListener('popstate', function(){
+        loadFolder(getInitialFolderId(), {updateUrl:false});
+    });
     $(document).on('click', function(){ $('#contextMenu').hide(); });
     initListDropzone();
     // 阻止浏览器默认拖拽打开文件行为
@@ -131,7 +170,9 @@ $(function(){
     });
 });
 
-function loadFolder(folder_id){
+function loadFolder(folder_id, options){
+    options = options || {};
+    folder_id = normalizeFolderId(folder_id);
     currentFolderId = folder_id;
     // 如果有上传完成标记且当前没有在上传，自动刷新文件列表
     if(uploadNeedRefresh && !uploadRunning){
@@ -146,6 +187,10 @@ function loadFolder(folder_id){
         layer.close(ii);
         if(res.code == 0){
             currentData = res;
+            currentFolderId = normalizeFolderId(res.folder_id);
+            if(options.updateUrl !== false){
+                updateFolderUrl(currentFolderId, options.replaceUrl === true);
+            }
             renderBreadcrumb(res.path);
             renderItems(res.folders, res.files);
             var hasContent = res.folders.length > 0 || res.files.length > 0;
@@ -733,6 +778,11 @@ function doMoveFile(hash, folder_id){
 
 function refresh(){ loadFolder(currentFolderId); }
 
+function refreshCurrentUploadFolder(){
+    uploadNeedRefresh = false;
+    loadFolder(currentFolderId, {updateUrl:false});
+}
+
 function copyDirectLink(hash, type){
     var link = siteurl + 'down.php/' + hash + '.' + type;
     var $temp = $('<input>');
@@ -999,8 +1049,7 @@ function openUploadModal(prefillFiles){
         },
         end:function(){
             uploadModalIndex = null;
-            // 用户关闭弹框不影响上传，不自动刷新页面
-            // 上传完成后通过 uploadNeedRefresh 标记，等用户手动刷新或下次加载时刷新
+            // 用户关闭弹框不影响上传；每个文件完成后会自动刷新当前正在查看的列表
         }
     });
 }
@@ -1258,11 +1307,7 @@ function processUploadQueue(){
         }
         if(!hasRunning){
             uploadRunning = false;
-            uploadNeedRefresh = true;
-            // 所有文件上传完成，如果弹框已关闭，可以提示用户刷新
-            if(uploadModalIndex === null){
-                layer.msg('文件上传完成，请刷新页面查看最新文件', {icon:1, time:3000});
-            }
+            uploadNeedRefresh = false;
         }
         return;
     }
@@ -1284,6 +1329,7 @@ function processUploadQueue(){
                     if(preRes.code == 1){
                         task.status = 'completed';
                         updateQueueItem(task, '已存在', 100);
+                        refreshCurrentUploadFolder();
                         processUploadQueue();
                         return;
                     }
@@ -1325,6 +1371,7 @@ function uploadChunks(task, chunksize){
         task.status = 'completed';
         updateQueueItem(task, '完成', 100);
         clearResumeData(task.hash);
+        refreshCurrentUploadFolder();
         processUploadQueue();
         return;
     }
@@ -1354,6 +1401,7 @@ function uploadChunks(task, chunksize){
                     task.status = 'completed';
                     updateQueueItem(task, '已存在', 100);
                     clearResumeData(task.hash);
+                    refreshCurrentUploadFolder();
                     processUploadQueue();
                 }else{
                     task.status = 'error';
