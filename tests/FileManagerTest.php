@@ -19,8 +19,10 @@ class FileManagerTest
         $this->testFileHashLogic();
         $this->testPathBreadcrumb();
         $this->testUploadResumeLogic();
+        $this->testDownloadRangeResumeLogic();
         $this->testSizeFormat();
         $this->testMoveFolderLogic();
+        $this->testRefererHostAllowsSameOriginOriginHeader();
         $this->testMineViewFolderUrlPersistence();
         $this->testMineViewRefreshesAfterEachUploadCompletion();
 
@@ -97,6 +99,38 @@ class FileManagerTest
         echo "\n";
     }
 
+    private function testDownloadRangeResumeLogic()
+    {
+        echo "--- 下载断点续传 Range 逻辑 ---\n";
+
+        $this->assert($this->parseDownloadRangeForTest('bytes=500-', 1000) === [500, 999], '断开后继续下载应从已完成字节继续到文件末尾');
+        $this->assert($this->parseDownloadRangeForTest('bytes=200-499', 1000) === [200, 499], '指定起止范围应保持客户端请求的下载区间');
+        $this->assert($this->parseDownloadRangeForTest('bytes=-200', 1000) === [800, 999], '后缀范围应下载文件最后指定字节数');
+        $this->assert($this->parseDownloadRangeForTest('bytes=900-2000', 1000) === [900, 999], '超出文件大小的结束位置应裁剪到文件末尾');
+        $this->assert($this->parseDownloadRangeForTest('bytes=1000-', 1000) === 'unsatisfiable', '起始位置等于文件大小时应判定为不可满足范围');
+        $this->assert($this->parseDownloadRangeForTest('bytes=700-600', 1000) === 'unsatisfiable', '结束位置小于起始位置时应判定为不可满足范围');
+        $this->assert($this->parseDownloadRangeForTest('bytes=abc-def', 1000) === false, '语法错误的 Range 应忽略并允许普通完整下载');
+        $this->assert($this->parseDownloadRangeForTest('items=0-10', 1000) === false, '非 bytes 单位的 Range 应忽略并允许普通完整下载');
+        $this->assert($this->parseDownloadRangeForTest('bytes=0-99,200-299', 1000) === false, '未实现 multipart Range 时应忽略多段范围而不是误返回416');
+
+        echo "\n";
+    }
+
+    private function parseDownloadRangeForTest($rangeHeader, $size)
+    {
+        $oldRange = isset($_SERVER['HTTP_RANGE']) ? $_SERVER['HTTP_RANGE'] : null;
+        $_SERVER['HTTP_RANGE'] = $rangeHeader;
+        $range = get_file_range($size);
+
+        if ($oldRange === null) {
+            unset($_SERVER['HTTP_RANGE']);
+        } else {
+            $_SERVER['HTTP_RANGE'] = $oldRange;
+        }
+
+        return $range;
+    }
+
     private function testSizeFormat()
     {
         echo "--- 文件大小格式化 ---\n";
@@ -134,6 +168,27 @@ class FileManagerTest
         $existingFolders = ['work', 'docs', 'images'];
         $this->assert(in_array('docs', $existingFolders), '应检测到同名文件夹');
         $this->assert(!in_array('music', $existingFolders), '未存在的文件夹名应可用');
+        echo "\n";
+    }
+
+    private function testRefererHostAllowsSameOriginOriginHeader()
+    {
+        echo "--- AJAX 来源校验 ---\n";
+        $oldHost = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : null;
+        $oldReferer = isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : null;
+        $oldOrigin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : null;
+
+        $_SERVER['HTTP_HOST'] = '101.42.200.84:5858';
+        unset($_SERVER['HTTP_REFERER']);
+        $_SERVER['HTTP_ORIGIN'] = 'http://101.42.200.84:5858';
+        $this->assert(checkRefererHost() === true, '无 Referer 但 Origin 同源时应允许 AJAX 请求');
+
+        $_SERVER['HTTP_ORIGIN'] = 'http://evil.example.com';
+        $this->assert(checkRefererHost() === false, '跨域 Origin 应被拒绝');
+
+        if ($oldHost === null) unset($_SERVER['HTTP_HOST']); else $_SERVER['HTTP_HOST'] = $oldHost;
+        if ($oldReferer === null) unset($_SERVER['HTTP_REFERER']); else $_SERVER['HTTP_REFERER'] = $oldReferer;
+        if ($oldOrigin === null) unset($_SERVER['HTTP_ORIGIN']); else $_SERVER['HTTP_ORIGIN'] = $oldOrigin;
         echo "\n";
     }
 

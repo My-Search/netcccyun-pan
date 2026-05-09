@@ -15,6 +15,16 @@ function random($length, $numeric = 0) {
 	return $hash;
 }
 
+function table_exists($db, $table){
+	$rs = $db->query("SHOW TABLES LIKE '".str_replace("'", "''", $table)."'");
+	return $rs && $rs->fetchColumn();
+}
+
+function column_exists($db, $table, $column){
+	$rs = $db->query("SHOW COLUMNS FROM `".str_replace('`', '``', $table)."` LIKE '".str_replace("'", "''", $column)."'");
+	return $rs && $rs->fetchColumn();
+}
+
 try{
 	$db=new PDO("mysql:host=".$dbconfig['host'].";dbname=".$dbconfig['dbname'].";port=".$dbconfig['port'],$dbconfig['user'],$dbconfig['pwd']);
 }catch(Exception $e){
@@ -30,6 +40,7 @@ $version = 0;
 if($rs = $db->query("SELECT v FROM pre_config WHERE k='version'")){
 	$version = $rs->fetchColumn();
 }
+$repair = isset($_GET['repair']) && $_GET['repair'] == '1';
 
 $sqls = [];
 if($version<1001){
@@ -53,15 +64,36 @@ if($version<1005){
 if($version<1006){
 	$sqls = array_merge($sqls, explode(';', file_get_contents('update_1006.sql')));
 }
+if($version<1007){
+	$sqls = array_merge($sqls, explode(';', file_get_contents('update_1007.sql')));
+}
+if($repair || (table_exists($db, 'pre_upload_invite') && !column_exists($db, 'pre_upload_invite', 'remark'))){
+	$sqls[] = "ALTER TABLE `pre_upload_invite` ADD COLUMN `remark` varchar(255) DEFAULT NULL AFTER `expire_time`";
+}
+if($repair || (table_exists($db, 'pre_file') && !column_exists($db, 'pre_file', 'remark'))){
+	$sqls[] = "ALTER TABLE `pre_file` ADD COLUMN `remark` varchar(255) DEFAULT NULL AFTER `pwd`";
+}
 if(empty($sqls)){
 	exit('你的网站已经升级到最新版本了');
 }
-$sqls[]="REPLACE INTO `pre_config` VALUES ('version', '1006')";
 $success=0;$error=0;$errorMsg=null;
 foreach ($sqls as $value) {
 	$value=trim($value);
 	if(empty($value))continue;
 	if($db->exec($value)===false){
+		$dberror=$db->errorInfo();
+		if($repair && intval($dberror[1]) === 1060){
+			$success++;
+			continue;
+		}
+		$error++;
+		$errorMsg.=$dberror[2]."<br>";
+	}else{
+		$success++;
+	}
+}
+if($error === 0){
+	if($db->exec("REPLACE INTO `pre_config` VALUES ('version', '1007')")===false){
 		$error++;
 		$dberror=$db->errorInfo();
 		$errorMsg.=$dberror[2]."<br>";
@@ -81,7 +113,7 @@ if($admin_user && $admin_pwd){
 }
 echo '成功执行SQL语句'.$success.'条！<br/>';
 if($errorMsg){
-//echo '<div class="alert alert-danger text-center" role="alert">'.$errorMsg.'</div>';
+	exit('<div class="alert alert-danger text-center" role="alert">数据库升级失败：<br>'.$errorMsg.'</div>');
 }
 exit("<script language='javascript'>alert('网站数据库升级完成！');window.location.href='../';</script>");
 ?>

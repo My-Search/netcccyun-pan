@@ -14,6 +14,7 @@ include SYSTEM_ROOT.'header.php';
 .item-card:hover { background: #f0f0f0; }
 .item-card .icon-wrap { font-size: 48px; height: 56px; display: flex; align-items: center; justify-content: center; pointer-events: none; }
 .item-card .item-name { margin-top: 5px; font-size: 12px; word-break: break-all; line-height: 1.3; max-height: 32px; overflow: hidden; pointer-events: none; }
+.item-card .item-remark { margin-top: 3px; font-size: 11px; color: #8a6d3b; line-height: 1.25; max-height: 28px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; pointer-events: none; }
 .item-card.drag-over { background: #d9edf7 !important; outline: 2px dashed #337ab7; }
 .item-card.file-item { cursor: grab; }
 .item-card.file-item:active { cursor: grabbing; }
@@ -75,6 +76,7 @@ include SYSTEM_ROOT.'header.php';
         </div>
         <div class="pull-right">
             <button class="btn btn-sm btn-success" onclick="openUploadModal()"><i class="fa fa-cloud-upload"></i> 上传文件</button>
+            <button class="btn btn-sm btn-warning" onclick="createUploadInvite()"><i class="fa fa-user-plus"></i> 邀请上传</button>
             <button class="btn btn-sm btn-primary" onclick="createNewFolder()"><i class="fa fa-folder"></i> 新建文件夹</button>
             <button class="btn btn-sm btn-default" onclick="refresh()"><i class="fa fa-refresh"></i> 刷新</button>
         </div>
@@ -227,6 +229,9 @@ function renderItems(folders, files){
         html += '<div class="item-card file-item" draggable="true" data-file-hash="'+f.hash+'" data-name="'+escapeHtml(f.name)+'" data-type="'+f.type+'">';
         html += '<div class="icon-wrap"><i class="fa '+typeToIcon(f.type)+'"></i></div>';
         html += '<div class="item-name">'+escapeHtml(f.name)+'</div>';
+        if(f.remark){
+            html += '<div class="item-remark" title="'+escapeHtml(f.remark)+'">'+escapeHtml(f.remark)+'</div>';
+        }
         html += '</div>';
     }
     $('#itemList').html(html);
@@ -916,6 +921,74 @@ function copyShareUrl(){
     document.execCommand('copy');
     $temp.remove();
     layer.msg('分享链接已复制', {icon:1});
+}
+
+function createUploadInvite(){
+    var html = '<div style="padding:15px;">';
+    html += '<p>接收位置：<b>'+(currentFolderId > 0 ? '当前目录' : '根目录')+'</b></p>';
+    html += '<p>单文件大小限制（MB）：</p>';
+    html += '<input type="number" id="inviteMaxSizeMb" class="form-control" min="1" value="1024">';
+    html += '<p style="margin-top:12px;">有效时长（小时，0 表示长期有效）：</p>';
+    html += '<input type="number" id="inviteExpireHours" class="form-control" min="0" value="0">';
+    html += '<p style="margin-top:12px;">上传文件备注（可选，上传后显示在文件名下方）：</p>';
+    html += '<textarea id="inviteRemark" class="form-control" maxlength="200" rows="3" placeholder="例如：请上传本次报销凭证"></textarea>';
+    html += '<p style="margin-top:10px; color:#999; font-size:12px;">默认限制为 1024MB（1GB）。文件未上传成功前可反复重试。</p>';
+    html += '</div>';
+    layer.open({
+        type: 1,
+        title: '邀请上传设置',
+        area: ['460px', '440px'],
+        content: html,
+        btn: ['生成邀请', '取消'],
+        yes: function(index){
+            var maxSizeMb = parseInt($('#inviteMaxSizeMb').val(), 10) || 1024;
+            var expireHours = parseInt($('#inviteExpireHours').val(), 10) || 0;
+            var remark = $('#inviteRemark').val().trim();
+            if(maxSizeMb <= 0){
+                layer.msg('大小限制必须大于0', {icon:2});
+                return;
+            }
+            if(expireHours < 0){
+                layer.msg('有效时长不能小于0', {icon:2});
+                return;
+            }
+            var ii = layer.load(1);
+            $.post('ajax.php?act=createUploadInvite', {folder_id: currentFolderId, max_size_mb: maxSizeMb, expire_hours: expireHours, remark: remark, csrf_token: '<?php echo $csrf_token; ?>'}, function(res){
+                layer.close(ii);
+                if(res.code == 0){
+                    layer.close(index);
+                    var showHtml = '<div style="padding:15px; text-align:center;">';
+                    showHtml += '<p>邀请上传链接：</p>';
+                    showHtml += '<div class="input-group" style="margin-bottom:12px;">';
+                    showHtml += '<input type="text" class="form-control" id="uploadInviteUrlInput" readonly value="'+escapeHtml(res.url)+'">';
+                    showHtml += '<span class="input-group-btn"><button class="btn btn-primary" onclick="copyUploadInviteUrl()">复制</button></span>';
+                    showHtml += '</div>';
+                    showHtml += '<p style="color:#999; font-size:12px;">密码已包含在链接中，对方打开即可上传。</p>';
+                    showHtml += '<p style="color:#999; font-size:12px;">单文件限制：'+maxSizeMb+'MB；有效期：'+(res.expire_time || '长期有效')+'</p>';
+                    if(res.remark){ showHtml += '<p style="color:#8a6d3b; font-size:12px; word-break:break-all;">备注：'+escapeHtml(res.remark)+'</p>'; }
+                    showHtml += '</div>';
+                    layer.open({
+                        type: 1,
+                        title: '邀请上传已生成',
+                        area: ['520px', '290px'],
+                        content: showHtml
+                    });
+                }else{
+                    layer.msg(res.msg, {icon:2});
+                }
+            }, 'json');
+        }
+    });
+}
+
+function copyUploadInviteUrl(){
+    var url = $('#uploadInviteUrlInput').val();
+    var $temp = $('<input>');
+    $('body').append($temp);
+    $temp.val(url).select();
+    document.execCommand('copy');
+    $temp.remove();
+    layer.msg('邀请上传链接已复制', {icon:1});
 }
 
 function escapeHtml(text){

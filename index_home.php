@@ -113,7 +113,7 @@ include SYSTEM_ROOT.'header.php';
     <!-- 快捷操作 -->
     <div class="quick-actions">
         <a href="./mine.php"><i class="fa fa-folder" style="color:#f0ad4e"></i><span>文件管理</span></a>
-        <a href="javascript:void(0)" onclick="openUpload()"><i class="fa fa-cloud-upload" style="color:#5cb85c"></i><span>上传文件</span></a>
+        <a href="./my_invites.php"><i class="fa fa-user-plus" style="color:#5cb85c"></i><span>我的邀请</span></a>
         <a href="./my_shares.php"><i class="fa fa-share-alt" style="color:#5bc0de"></i><span>我的分享</span></a>
     </div>
 
@@ -213,11 +213,6 @@ function renderRecentFiles(files){
         html += '</a>';
     }
     $('#recentGrid').html(html);
-}
-
-function openUpload(){
-    layer.msg('请前往 我的文件 页面进行上传', {icon:0});
-    setTimeout(function(){ window.location.href='./mine.php'; }, 1500);
 }
 
 function typeToIcon(type){

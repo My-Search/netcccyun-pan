@@ -233,8 +233,10 @@ if(!function_exists("is_https")){
 }
 
 function checkRefererHost(){
-	if(!$_SERVER['HTTP_REFERER'])return false;
-	$url_arr = parse_url($_SERVER['HTTP_REFERER']);
+	$source = isset($_SERVER['HTTP_REFERER']) && $_SERVER['HTTP_REFERER'] ? $_SERVER['HTTP_REFERER'] : (isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '');
+	if(!$source)return false;
+	$url_arr = parse_url($source);
+	if(!$url_arr || empty($url_arr['host']))return false;
 	$http_host = $_SERVER['HTTP_HOST'];
 	if(strpos($http_host,':'))$http_host = substr($http_host, 0, strpos($http_host, ':'));
 	return $url_arr['host'] === $http_host;
@@ -569,16 +571,32 @@ function file_part_merge($hash, $chunks){
 }
 
 function get_file_range($size){
-	if(isset($_SERVER['HTTP_RANGE']) && !empty($_SERVER['HTTP_RANGE']) && preg_match('/^bytes=(\d+)-(\d*)$/i', $_SERVER['HTTP_RANGE'], $match)){
-		$start = intval($match[1]);
-		$end = intval($match[2]);
-		if($start < 0) $start = 0;
-		if($end == 0) $end = $size - 1;
-		if($end >= $size) $end = $size - 1;
-		if($end < $start || $start >= $size) return false;
-		return [$start, $end];
+	$size = intval($size);
+	if($size <= 0 || !isset($_SERVER['HTTP_RANGE']) || empty($_SERVER['HTTP_RANGE'])) return false;
+	$rangeHeader = trim($_SERVER['HTTP_RANGE']);
+	if(stripos($rangeHeader, 'bytes=') !== 0) return false;
+
+	if(!preg_match('/^bytes=(\d*)-(\d*)$/i', $rangeHeader, $match)) return false;
+
+	$startText = $match[1];
+	$endText = $match[2];
+	if($startText === '' && $endText === '') return false;
+
+	if($startText === ''){
+		$suffixLength = intval($endText);
+		if($suffixLength <= 0) return false;
+		$start = max(0, $size - $suffixLength);
+		$end = $size - 1;
+	}else{
+		$start = intval($startText);
+		$end = $endText === '' ? $size - 1 : intval($endText);
 	}
-	return false;
+
+	if($start < 0) $start = 0;
+	if($end >= $size) $end = $size - 1;
+	if($end < $start || $start >= $size) return 'unsatisfiable';
+
+	return [$start, $end];
 }
 
 function file_output($hash, $type, $size, $name, $is_view = false, $is_admin = false){
@@ -618,12 +636,18 @@ function file_output($hash, $type, $size, $name, $is_view = false, $is_admin = f
 		}
 
 		$range = false;
-		if(\lib\StorHelper::is_range()){
+		$rangeSupported = \lib\StorHelper::is_range();
+		if($rangeSupported){
 			header("Accept-Ranges: bytes");
 			$range = get_file_range($size);
 		}
+		if($range === 'unsatisfiable'){
+			header("HTTP/1.1 416 Range Not Satisfiable");
+			header("Content-Range: bytes */{$size}");
+			exit;
+		}
 
-		if($range){
+		if(is_array($range)){
 			header("HTTP/1.1 206 Partial Content");
 			header("Content-Length: ".($range[1] - $range[0] + 1));
 			header("Content-Range: bytes {$range[0]}-{$range[1]}/{$size}");

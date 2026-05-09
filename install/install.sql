@@ -5,7 +5,7 @@ create table `pre_config` (
   PRIMARY KEY  (`k`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT INTO `pre_config` VALUES ('version', '1006');
+INSERT INTO `pre_config` VALUES ('version', '1007');
 INSERT INTO `pre_config` VALUES ('admin_user', 'admin');
 INSERT INTO `pre_config` VALUES ('admin_pwd', '123456');
 INSERT INTO `pre_config` VALUES ('blackip', '');
@@ -75,6 +75,7 @@ CREATE TABLE `pre_file` (
   `lasttime` datetime DEFAULT NULL,
   `ip` varchar(15) NOT NULL,
   `pwd` varchar(255) DEFAULT NULL,
+  `remark` varchar(255) DEFAULT NULL,
   `block` int(1) NOT NULL DEFAULT '0',
   `count` int(11) unsigned NOT NULL DEFAULT '0',
   `uid` int(11) unsigned NOT NULL DEFAULT '0',
@@ -97,6 +98,27 @@ CREATE TABLE `pre_share` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `token` (`token`),
   KEY `folder_id` (`folder_id`),
+  KEY `uid` (`uid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+DROP TABLE IF EXISTS `pre_upload_invite`;
+CREATE TABLE `pre_upload_invite` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `token` varchar(32) NOT NULL,
+  `folder_id` int(11) unsigned NOT NULL DEFAULT '0',
+  `uid` int(11) unsigned NOT NULL DEFAULT '0',
+  `pwd` char(4) NOT NULL,
+  `max_size` bigint(20) unsigned NOT NULL DEFAULT '1073741824',
+  `expire_time` datetime DEFAULT NULL,
+  `remark` varchar(255) DEFAULT NULL,
+  `enable` tinyint(1) NOT NULL DEFAULT '1',
+  `addtime` datetime NOT NULL,
+  `uploads` int(11) unsigned NOT NULL DEFAULT '0',
+  `fail_count` int(11) unsigned NOT NULL DEFAULT '0',
+  `last_failtime` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `token` (`token`),
+  UNIQUE KEY `folder_uid` (`folder_id`,`uid`),
   KEY `uid` (`uid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

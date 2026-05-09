@@ -67,6 +67,157 @@ function checkUserStorageLimit($uid, $addSize = 0){
 	return true;
 }
 
+/**
+ * 生成邀请上传使用的 4 位数字密码。
+ * 主流程：优先使用 random_int；旧 PHP 环境不可用时回退 mt_rand。
+ */
+function generateUploadInvitePwd(){
+	if(function_exists('random_int')){
+		return str_pad(strval(random_int(0, 9999)), 4, '0', STR_PAD_LEFT);
+	}
+	return str_pad(strval(mt_rand(0, 9999)), 4, '0', STR_PAD_LEFT);
+}
+
+/**
+ * 生成邀请上传 token。
+ * 主流程：优先使用 random_bytes 生成 128bit 随机 token；旧环境不可用时回退现有 md5 风格。
+ */
+function generateUploadInviteToken(){
+	if(function_exists('random_bytes')){
+		return bin2hex(random_bytes(16));
+	}
+	return md5(uniqid().mt_rand(0,999).time());
+}
+
+/**
+ * 解析邀请上传的单文件大小上限。
+ * 主流程：按 MB 接收用户输入；为空或非法时使用默认 1GB，避免无限制公开入口。
+ */
+function parseUploadInviteMaxSize($value){
+	$mb = intval($value);
+	if($mb <= 0){
+		$mb = 1024;
+	}
+	return $mb * 1024 * 1024;
+}
+
+/**
+ * 解析邀请有效期。
+ * 主流程：按小时接收用户输入；0 表示长期有效，正数转换为过期时间。
+ */
+function parseUploadInviteExpireTime($hours){
+	if($hours === '' || !preg_match('/^\d+$/', strval($hours))){
+		return false;
+	}
+	$hours = intval($hours);
+	if($hours <= 0){
+		return null;
+	}
+	return date('Y-m-d H:i:s', time() + $hours * 3600);
+}
+
+/**
+ * 解析邀请上传备注。
+ * 主流程：清理 HTML 后限制长度，作为邀请上传成功后写入文件备注的固定说明。
+ */
+function parseUploadInviteRemark($value){
+	$remark = trim(strip_tags(strval($value)));
+	if(function_exists('mb_substr')){
+		return mb_substr($remark, 0, 200, 'UTF-8');
+	}
+	return substr($remark, 0, 200);
+}
+
+/**
+ * 输出邀请上传数据库写入失败信息。
+ * 主流程：将底层 SQL 错误转成可理解提示，避免返回不可用的邀请链接。
+ */
+function exitUploadInviteDatabaseError(){
+	global $DB;
+	$error = $DB->error();
+	$msg = '邀请保存失败，请先完成网站数据库升级';
+	if($error){
+		$msg .= '：'.$error;
+	}
+	exit(json_encode(['code'=>-1, 'msg'=>$msg, 'error'=>'database']));
+}
+
+/**
+ * 完成一次邀请上传后立即停用邀请。
+ * 主流程：成功计数加一并关闭邀请，使链接成为一次性上传入口。
+ */
+function completeUploadInvite($token){
+	global $DB;
+	if(empty($token))return;
+	$DB->exec("UPDATE pre_upload_invite SET uploads=uploads+1, enable=0 WHERE token=:token", [':token'=>$token]);
+}
+
+/**
+ * 校验免登录邀请上传上下文。
+ * 主流程：校验 token 与 4 位数字密码，确认目标目录仍属于邀请创建者，并返回归属 uid/folder_id。
+ */
+function resolveUploadInviteContext($token, $pwd){
+	global $DB;
+	$token = trim($token);
+	$pwd = trim($pwd);
+	if(empty($token) || !preg_match('/^[0-9a-z]{32}$/i', $token)){
+		return ['ok'=>false, 'msg'=>'邀请链接无效'];
+	}
+	if(!preg_match('/^\d{4}$/', $pwd)){
+		return ['ok'=>false, 'msg'=>'上传密码必须为4位数字'];
+	}
+	$invite = $DB->getRow("SELECT * FROM pre_upload_invite WHERE token=:token", [':token'=>$token]);
+	if(!$invite){
+		return ['ok'=>false, 'msg'=>'邀请已失效'];
+	}
+	if(intval($invite['enable']) !== 1){
+		return ['ok'=>false, 'msg'=>'邀请已失效'];
+	}
+	if(!empty($invite['expire_time']) && strtotime($invite['expire_time']) < time()){
+		return ['ok'=>false, 'msg'=>'邀请已失效'];
+	}
+	if(intval($invite['fail_count']) >= 10 && !empty($invite['last_failtime']) && strtotime($invite['last_failtime']) > strtotime('-10 minutes')){
+		return ['ok'=>false, 'msg'=>'密码错误次数过多，请10分钟后再试'];
+	}
+	if($invite['pwd'] !== $pwd){
+		$DB->exec("UPDATE pre_upload_invite SET fail_count=fail_count+1, last_failtime=NOW() WHERE id=:id", [':id'=>$invite['id']]);
+		return ['ok'=>false, 'msg'=>'上传密码错误'];
+	}
+	$folder = null;
+	if(intval($invite['folder_id']) > 0){
+		$folder = $DB->getRow("SELECT * FROM pre_folder WHERE id=:id AND uid=:uid", [':id'=>$invite['folder_id'], ':uid'=>$invite['uid']]);
+		if(!$folder){
+			return ['ok'=>false, 'msg'=>'邀请已失效'];
+		}
+	}
+	if(intval($invite['fail_count']) > 0){
+		$DB->exec("UPDATE pre_upload_invite SET fail_count=0, last_failtime=NULL WHERE id=:id", [':id'=>$invite['id']]);
+	}
+	return ['ok'=>true, 'invite'=>$invite, 'folder'=>$folder, 'uid'=>intval($invite['uid']), 'folder_id'=>intval($invite['folder_id'])];
+}
+
+/**
+ * 复核会话中的邀请上传授权。
+ * 主流程：分片/完成阶段重新校验邀请 token、密码、目录归属与会话目标，避免邀请被删除或密码轮换后继续写入。
+ */
+function revalidateUploadInviteSession(){
+	if(empty($_SESSION['upload']['invite_token'])){
+		return ['ok'=>true, 'invite'=>null];
+	}
+	$pwd = isset($_SESSION['upload']['invite_pwd']) ? $_SESSION['upload']['invite_pwd'] : '';
+	$context = resolveUploadInviteContext($_SESSION['upload']['invite_token'], $pwd);
+	if(!$context['ok']){
+		return $context;
+	}
+	if(intval($_SESSION['upload']['uid']) !== $context['uid'] || intval($_SESSION['upload']['folder_id']) !== $context['folder_id']){
+		return ['ok'=>false, 'msg'=>'邀请上传目标已变更，请重新选择文件上传'];
+	}
+	if(isset($_SESSION['upload']['size']) && intval($context['invite']['max_size']) > 0 && intval($_SESSION['upload']['size']) > intval($context['invite']['max_size'])){
+		return ['ok'=>false, 'msg'=>'文件超过邀请允许的大小上限（'.size_format($context['invite']['max_size']).'）'];
+	}
+	return $context;
+}
+
 function formatStorageSize($bytes){
 	$units = ['B', 'KB', 'MB', 'GB', 'TB'];
 	$unitIndex = 0;
@@ -155,22 +306,35 @@ function createFoldersRecursively($folders, $targetParentId, $uid, $DB, &$map){
 switch($act){
 case 'pre_upload':
 	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
-	if($conf['forcelogin']==1 && !$islogin2)exit('{"code":-1,"msg":"请先登录"}');
+	$invite_token = isset($_POST['invite_token'])?trim($_POST['invite_token']):'';
+	$invite_pwd = isset($_POST['invite_pwd'])?trim($_POST['invite_pwd']):'';
+	$inviteContext = null;
+	if(!empty($invite_token) || !empty($invite_pwd)){
+		$inviteContext = resolveUploadInviteContext($invite_token, $invite_pwd);
+		if(!$inviteContext['ok'])exit(json_encode(['code'=>-1, 'msg'=>$inviteContext['msg']]));
+	}
+	$inviteUploadMode = $inviteContext ? true : false;
+	if($conf['forcelogin']==1 && !$islogin2 && !$inviteContext)exit('{"code":-1,"msg":"请先登录"}');
 	$name = trim(htmlspecialchars($_POST['name']));
 	$hash = trim($_POST['hash']);
 	$size = intval($_POST['size']);
 	$ispwd = intval($_POST['ispwd']);
 	$pwd = $ispwd==1?trim(htmlspecialchars($_POST['pwd'])):null;
+	$remark = $inviteContext ? parseUploadInviteRemark($inviteContext['invite']['remark']) : null;
 	$folder_id = isset($_POST['folder_id'])?intval($_POST['folder_id']):0;
-	if($folder_id>0 && $islogin2){
+	$uploadUid = $uid ? $uid : 0;
+	if($inviteContext){
+		$uploadUid = $inviteContext['uid'];
+		$folder_id = $inviteContext['folder_id'];
+	}elseif($folder_id>0 && $islogin2){
 		$frow = $DB->getRow("SELECT * FROM pre_folder WHERE id=:id AND uid=:uid", [':id'=>$folder_id, ':uid'=>$uid]);
 		if(!$frow) $folder_id = 0;
 	}elseif($folder_id>0){
 		$folder_id = 0;
 	}
 	$relative_path = isset($_POST['relative_path'])?trim($_POST['relative_path']):'';
-	if(!empty($relative_path) && $islogin2){
-		$res = resolveUploadPath($relative_path, $folder_id, $uid, $DB);
+	if(!empty($relative_path) && ($islogin2 || $inviteContext)){
+		$res = resolveUploadPath($relative_path, $folder_id, $uploadUid, $DB);
 		if($res['error']){
 			exit('{"code":-1,"msg":"'.$res['error'].'"}');
 		}
@@ -204,18 +368,21 @@ case 'pre_upload':
 	if($limit_size > 0 && $size > $limit_size * 1024 * 1024){
 		exit('{"code":-1,"msg":"上传文件大小限制'.$limit_size.'MB"}');
 	}
+	if($inviteContext && intval($inviteContext['invite']['max_size']) > 0 && $size > intval($inviteContext['invite']['max_size'])){
+		exit(json_encode(['code'=>-1, 'msg'=>'文件超过邀请允许的大小上限（'.size_format($inviteContext['invite']['max_size']).'）']));
+	}
 	// 用户容量限制检查
-	if($islogin2 && !checkUserStorageLimit($uid, $size)){
-		$used = getUserUsedStorage($uid);
-		$userLimit = $DB->getRow("SELECT storage_limit FROM pre_user WHERE uid=:uid", [':uid'=>$uid]);
+	if(($islogin2 || $inviteContext) && !checkUserStorageLimit($uploadUid, $size)){
+		$used = getUserUsedStorage($uploadUid);
+		$userLimit = $DB->getRow("SELECT storage_limit FROM pre_user WHERE uid=:uid", [':uid'=>$uploadUid]);
 		$limitStr = formatStorageSize(intval($userLimit['storage_limit']));
 		$usedStr = formatStorageSize($used);
 		exit('{"code":-1,"msg":"您的存储空间不足（已用'.$usedStr.' / 总共'.$limitStr.'），无法上传该文件","error":"storage_limit"}');
 	}
 	if($conf['upload_limit']>0){
 		$thisday = date("Y-m-d 00:00:00");
-		if($islogin2){
-			$ipcount=$DB->getColumn("SELECT count(*) from pre_file WHERE uid='$uid' AND addtime>='".$thisday."'");
+		if($islogin2 || $inviteContext){
+			$ipcount=$DB->getColumn("SELECT count(*) from pre_file WHERE uid=:uid AND addtime>=:day", [':uid'=>$uploadUid, ':day'=>$thisday]);
 		}else{
 			$ipcount=$DB->getColumn("SELECT count(*) from pre_file WHERE ip='$clientip' AND addtime>='".$thisday."'");
 		}
@@ -227,11 +394,18 @@ case 'pre_upload':
 	$old_hash = null;
 
 	// 检查当前目录同名文件（覆盖逻辑）
-	$existing = $DB->getRow("SELECT * FROM pre_file WHERE uid=:uid AND folder_id=:folder_id AND name=:name", [':uid'=>$uid, ':folder_id'=>$folder_id, ':name'=>$name]);
+	$existing = $DB->getRow("SELECT * FROM pre_file WHERE uid=:uid AND folder_id=:folder_id AND name=:name", [':uid'=>$uploadUid, ':folder_id'=>$folder_id, ':name'=>$name]);
 	if($existing && $existing['hash'] == $hash){
 		// 完全相同的文件，秒传（保留原记录）
+		if($inviteContext){
+			$DB->exec("UPDATE pre_file SET remark=:remark WHERE id=:id", [':remark'=>$remark, ':id'=>$existing['id']]);
+			completeUploadInvite($invite_token);
+		}
 		$result = ['code'=>1, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$existing['id']];
 		exit(json_encode($result));
+	}
+	if($existing && $inviteUploadMode){
+		exit('{"code":-1,"msg":"目标目录已存在同名文件，请更换文件名后再上传"}');
 	}
 	if($existing && $existing['hash'] != $hash){
 		// 同名但内容不同，需要覆盖
@@ -241,6 +415,9 @@ case 'pre_upload':
 			$old_hash = $existing['hash'];
 			$file_id = $existing['id'];
 			$DB->exec("UPDATE pre_file SET hash=:hash, size=:size, type=:type, addtime=NOW(), ip=:ip, pwd=:pwd WHERE id=:id", [':hash'=>$hash, ':size'=>$size, ':type'=>$ext, ':ip'=>$clientip, ':pwd'=>$pwd, ':id'=>$file_id]);
+			if($inviteContext){
+				completeUploadInvite($invite_token);
+			}
 			$refCount = $DB->getColumn("SELECT count(*) FROM pre_file WHERE hash=:hash", [':hash'=>$old_hash]);
 			if(intval($refCount) === 0){
 				$stor->delete($old_hash);
@@ -256,7 +433,16 @@ case 'pre_upload':
 	// 检查全站 hash（秒传）
 	$row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
 	if($row && empty($overwrite_id)){
-		$result = ['code'=>1, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$row['id']];
+		$file_id = $row['id'];
+		if($inviteUploadMode){
+			$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`,`remark`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id,:remark)", [':name'=>$name, ':type'=>$ext, ':size'=>$size, ':hash'=>$hash, ':ip'=>$clientip, ':pwd'=>$pwd, ':uid'=>$uploadUid, ':folder_id'=>$folder_id, ':remark'=>$remark]);
+			if(!$sds)exit('{"code":-1,"msg":"上传失败'.$DB->error().'","error":"database"}');
+			$file_id = $DB->lastInsertId();
+		}
+		if($inviteContext){
+			completeUploadInvite($invite_token);
+		}
+		$result = ['code'=>1, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$file_id];
 		exit(json_encode($result));
 	}
 
@@ -272,7 +458,11 @@ case 'pre_upload':
 			'pwd' => $pwd,
 			'folder_id' => $folder_id,
 			'overwrite_id' => $overwrite_id,
-			'old_hash' => $old_hash
+			'old_hash' => $old_hash,
+			'uid' => $uploadUid,
+			'invite_token' => $inviteContext ? $invite_token : null,
+			'invite_pwd' => $inviteContext ? $invite_pwd : null,
+			'remark' => $remark
 		];
 		$result = ['code'=>0, 'third'=>true, 'hash'=>$hash, 'url'=>$param['url'], 'post'=>$param['post']];
 		exit(json_encode($result));
@@ -288,7 +478,11 @@ case 'pre_upload':
 			'pwd' => $pwd,
 			'folder_id' => $folder_id,
 			'overwrite_id' => $overwrite_id,
-			'old_hash' => $old_hash
+			'old_hash' => $old_hash,
+			'uid' => $uploadUid,
+			'invite_token' => $inviteContext ? $invite_token : null,
+			'invite_pwd' => $inviteContext ? $invite_pwd : null,
+			'remark' => $remark
 		];
 		$result = ['code'=>0, 'third'=>false, 'hash'=>$hash, 'chunksize'=>$chunksize, 'chunks'=>$chunks];
 		exit(json_encode($result));
@@ -298,9 +492,10 @@ break;
 case 'upload_part':
 	if(!isset($_FILES['file']))exit('{"code":-1,"msg":"请选择文件"}');
 	// 用户容量限制检查（二次校验）
-	if($islogin2 && isset($_SESSION['upload']['size']) && !checkUserStorageLimit($uid, $_SESSION['upload']['size'])){
-		$used = getUserUsedStorage($uid);
-		$userLimit = $DB->getRow("SELECT storage_limit FROM pre_user WHERE uid=:uid", [':uid'=>$uid]);
+	$uploadUid = isset($_SESSION['upload']['uid']) ? intval($_SESSION['upload']['uid']) : ($uid ? $uid : 0);
+	if($uploadUid && isset($_SESSION['upload']['size']) && !checkUserStorageLimit($uploadUid, $_SESSION['upload']['size'])){
+		$used = getUserUsedStorage($uploadUid);
+		$userLimit = $DB->getRow("SELECT storage_limit FROM pre_user WHERE uid=:uid", [':uid'=>$uploadUid]);
 		$limitStr = formatStorageSize(intval($userLimit['storage_limit']));
 		$usedStr = formatStorageSize($used);
 		exit('{"code":-1,"msg":"您的存储空间不足（已用'.$usedStr.' / 总共'.$limitStr.'），无法继续上传","error":"storage_limit"}');
@@ -319,11 +514,16 @@ case 'upload_part':
 		exit('{"code":-1,"msg":"'.$errMsg.'","error":"php_upload"}');
 	}
 	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
-	if($conf['forcelogin']==1 && !$islogin2)exit('{"code":-1,"msg":"请先登录"}');
+	if($conf['forcelogin']==1 && !$islogin2 && empty($_SESSION['upload']['invite_token']))exit('{"code":-1,"msg":"请先登录"}');
 	$chunk = intval($_POST['chunk']);
 	$hash = trim($_POST['hash']);
 	if(!$_SESSION['upload'] || !$_SESSION['upload']['hash'] || $_SESSION['upload']['hash']!=$hash){
 		exit('{"code":-1,"msg":"参数校验失败，请刷新页面重试"}');
+	}
+	$inviteCheck = revalidateUploadInviteSession();
+	if(!$inviteCheck['ok']){
+		unset($_SESSION['upload']);
+		exit(json_encode(['code'=>-1, 'msg'=>$inviteCheck['msg']]));
 	}
 	if(!preg_match('/^[0-9a-z]{32}$/i', $hash))exit('{"code":-1,"msg":"hash error"}');
 	$chunks = intval($_SESSION['upload']['chunks']);
@@ -361,12 +561,16 @@ case 'upload_part':
 	$name = $_SESSION['upload']['name'];
 	$pwd = $_SESSION['upload']['pwd'];
 	$folder_id = $_SESSION['upload']['folder_id'];
+	$remark = isset($_SESSION['upload']['remark']) ? $_SESSION['upload']['remark'] : null;
 
 	// 同名覆盖逻辑
 	if(!empty($_SESSION['upload']['overwrite_id'])){
 		$overwrite_id = $_SESSION['upload']['overwrite_id'];
 		$old_hash = $_SESSION['upload']['old_hash'];
 		$DB->exec("UPDATE pre_file SET hash=:hash, size=:size, type=:type, addtime=NOW(), ip=:ip, pwd=:pwd WHERE id=:id", [':hash'=>$hash, ':size'=>$size, ':type'=>$ext, ':ip'=>$clientip, ':pwd'=>$pwd, ':id'=>$overwrite_id]);
+		if(!empty($_SESSION['upload']['invite_token'])){
+			completeUploadInvite($_SESSION['upload']['invite_token']);
+		}
 		$refCount = $DB->getColumn("SELECT count(*) FROM pre_file WHERE hash=:hash", [':hash'=>$old_hash]);
 		if(intval($refCount) === 0){
 			$stor->delete($old_hash);
@@ -378,12 +582,21 @@ case 'upload_part':
 
 	$row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
 	if($row){
+		$file_id = $row['id'];
+		if(!empty($_SESSION['upload']['invite_token'])){
+			$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`,`remark`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id,:remark)", [':name'=>$name, ':type'=>$ext, ':size'=>$size, ':hash'=>$hash, ':ip'=>$clientip, ':pwd'=>$pwd, ':uid'=>$uploadUid, ':folder_id'=>$folder_id, ':remark'=>$remark]);
+			if(!$sds)exit('{"code":-1,"msg":"上传失败'.$DB->error().'","error":"database"}');
+			$file_id = $DB->lastInsertId();
+		}
+		if(!empty($_SESSION['upload']['invite_token'])){
+			completeUploadInvite($_SESSION['upload']['invite_token']);
+		}
 		unset($_SESSION['upload']);
-		$result = ['code'=>1, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$row['id']];
+		$result = ['code'=>1, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$file_id];
 		exit(json_encode($result));
 	}
 
-	$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id)", [':name'=>$name, ':type'=>$ext, ':size'=>$size, ':hash'=>$hash, ':ip'=>$clientip, ':pwd'=>$pwd, ':uid'=>($uid?$uid:0), ':folder_id'=>$folder_id]);
+	$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`,`remark`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id,:remark)", [':name'=>$name, ':type'=>$ext, ':size'=>$size, ':hash'=>$hash, ':ip'=>$clientip, ':pwd'=>$pwd, ':uid'=>$uploadUid, ':folder_id'=>$folder_id, ':remark'=>$remark]);
 	if(!$sds)exit('{"code":-1,"msg":"上传失败'.$DB->error().'","error":"database"}');
 	$id = $DB->lastInsertId();
 
@@ -398,7 +611,11 @@ case 'upload_part':
 		$DB->exec("UPDATE `pre_file` SET `block`=2 WHERE `id`='{$id}' LIMIT 1");
 	}
 	
-	$_SESSION['fileids'][] = $id;
+	if(!empty($_SESSION['upload']['invite_token'])){
+		completeUploadInvite($_SESSION['upload']['invite_token']);
+	}else{
+		$_SESSION['fileids'][] = $id;
+	}
 	unset($_SESSION['upload']);
 	$result = ['code'=>1, 'msg'=>'文件上传成功！', 'exists'=>0, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$id];
 	exit(json_encode($result));
@@ -406,16 +623,22 @@ break;
 
 case 'complete_upload':
 	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
-	if($conf['forcelogin']==1 && !$islogin2)exit('{"code":-1,"msg":"请先登录"}');
+	if($conf['forcelogin']==1 && !$islogin2 && empty($_SESSION['upload']['invite_token']))exit('{"code":-1,"msg":"请先登录"}');
 	$hash = trim($_POST['hash']);
 	if(!$_SESSION['upload'] || !$_SESSION['upload']['hash'] || $_SESSION['upload']['hash']!=$hash){
 		exit('{"code":-1,"msg":"参数校验失败，请刷新页面重试"}');
 	}
+	$inviteCheck = revalidateUploadInviteSession();
+	if(!$inviteCheck['ok']){
+		unset($_SESSION['upload']);
+		exit(json_encode(['code'=>-1, 'msg'=>$inviteCheck['msg']]));
+	}
 	if(!preg_match('/^[0-9a-z]{32}$/i', $hash))exit('{"code":-1,"msg":"hash error"}');
 	// 用户容量限制检查（二次校验）
-	if($islogin2 && isset($_SESSION['upload']['size']) && !checkUserStorageLimit($uid, $_SESSION['upload']['size'])){
-		$used = getUserUsedStorage($uid);
-		$userLimit = $DB->getRow("SELECT storage_limit FROM pre_user WHERE uid=:uid", [':uid'=>$uid]);
+	$uploadUid = isset($_SESSION['upload']['uid']) ? intval($_SESSION['upload']['uid']) : ($uid ? $uid : 0);
+	if($uploadUid && isset($_SESSION['upload']['size']) && !checkUserStorageLimit($uploadUid, $_SESSION['upload']['size'])){
+		$used = getUserUsedStorage($uploadUid);
+		$userLimit = $DB->getRow("SELECT storage_limit FROM pre_user WHERE uid=:uid", [':uid'=>$uploadUid]);
 		$limitStr = formatStorageSize(intval($userLimit['storage_limit']));
 		$usedStr = formatStorageSize($used);
 		exit('{"code":-1,"msg":"您的存储空间不足（已用'.$usedStr.' / 总共'.$limitStr.'），无法完成上传","error":"storage_limit"}');
@@ -430,12 +653,16 @@ case 'complete_upload':
 	$ext = $_SESSION['upload']['ext'];
 	$pwd = $_SESSION['upload']['pwd'];
 	$folder_id = $_SESSION['upload']['folder_id'];
+	$remark = isset($_SESSION['upload']['remark']) ? $_SESSION['upload']['remark'] : null;
 
 	// 同名覆盖逻辑
 	if(!empty($_SESSION['upload']['overwrite_id'])){
 		$overwrite_id = $_SESSION['upload']['overwrite_id'];
 		$old_hash = $_SESSION['upload']['old_hash'];
 		$DB->exec("UPDATE pre_file SET hash=:hash, size=:size, type=:type, addtime=NOW(), ip=:ip, pwd=:pwd WHERE id=:id", [':hash'=>$hash, ':size'=>$size, ':type'=>$ext, ':ip'=>$clientip, ':pwd'=>$pwd, ':id'=>$overwrite_id]);
+		if(!empty($_SESSION['upload']['invite_token'])){
+			completeUploadInvite($_SESSION['upload']['invite_token']);
+		}
 		$refCount = $DB->getColumn("SELECT count(*) FROM pre_file WHERE hash=:hash", [':hash'=>$old_hash]);
 		if(intval($refCount) === 0){
 			$stor->delete($old_hash);
@@ -447,12 +674,21 @@ case 'complete_upload':
 
 	$row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
 	if($row){
+		$file_id = $row['id'];
+		if(!empty($_SESSION['upload']['invite_token'])){
+			$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`,`remark`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id,:remark)", [':name'=>$name, ':type'=>$ext, ':size'=>$size, ':hash'=>$hash, ':ip'=>$clientip, ':pwd'=>$pwd, ':uid'=>$uploadUid, ':folder_id'=>$folder_id, ':remark'=>$remark]);
+			if(!$sds)exit('{"code":-1,"msg":"上传失败'.$DB->error().'","error":"database"}');
+			$file_id = $DB->lastInsertId();
+		}
+		if(!empty($_SESSION['upload']['invite_token'])){
+			completeUploadInvite($_SESSION['upload']['invite_token']);
+		}
 		unset($_SESSION['upload']);
-		$result = ['code'=>1, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$row['id']];
+		$result = ['code'=>1, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$file_id];
 		exit(json_encode($result));
 	}
 
-	$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id)", [':name'=>$name, ':type'=>$ext, ':size'=>$size, ':hash'=>$hash, ':ip'=>$clientip, ':pwd'=>$pwd, ':uid'=>($uid?$uid:0), ':folder_id'=>$folder_id]);
+	$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`,`remark`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id,:remark)", [':name'=>$name, ':type'=>$ext, ':size'=>$size, ':hash'=>$hash, ':ip'=>$clientip, ':pwd'=>$pwd, ':uid'=>$uploadUid, ':folder_id'=>$folder_id, ':remark'=>$remark]);
 	if(!$sds)exit('{"code":-1,"msg":"上传失败'.$DB->error().'","error":"database"}');
 	$id = $DB->lastInsertId();
 
@@ -467,7 +703,11 @@ case 'complete_upload':
 		$DB->exec("UPDATE `pre_file` SET `block`=2 WHERE `id`='{$id}' LIMIT 1");
 	}
 	
-	$_SESSION['fileids'][] = $id;
+	if(!empty($_SESSION['upload']['invite_token'])){
+		completeUploadInvite($_SESSION['upload']['invite_token']);
+	}else{
+		$_SESSION['fileids'][] = $id;
+	}
 	unset($_SESSION['upload']);
 	$result = ['code'=>1, 'msg'=>'文件上传成功！', 'exists'=>0, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$id];
 	exit(json_encode($result));
@@ -621,7 +861,7 @@ case 'listMine':
 		$params = [$uid, $folder_id];
 	}
 
-	$files = $DB->getAll("SELECT id, name, type, size, hash, addtime, count FROM pre_file WHERE uid=? AND folder_id=? $type_condition ORDER BY id DESC", $params);
+	$files = $DB->getAll("SELECT id, name, type, size, hash, addtime, count, remark FROM pre_file WHERE uid=? AND folder_id=? $type_condition ORDER BY id DESC", $params);
 	$path = getFolderPath($folder_id, $uid);
 	exit(json_encode(['code'=>0, 'folders'=>$folders, 'files'=>$files, 'path'=>$path, 'folder_id'=>$folder_id]));
 break;
@@ -648,6 +888,97 @@ case 'createShare':
 	}
 	$shareurl = $siteurl.'share.php?token='.$token;
 	exit(json_encode(['code'=>0, 'msg'=>'分享成功', 'url'=>$shareurl, 'token'=>$token]));
+break;
+
+case 'createUploadInvite':
+	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
+	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	$folder_id = isset($_POST['folder_id'])?intval($_POST['folder_id']):0;
+	if($folder_id < 0)$folder_id = 0;
+	if($folder_id > 0){
+		$row = $DB->getRow("SELECT * FROM pre_folder WHERE id=:id AND uid=:uid", [':id'=>$folder_id, ':uid'=>$uid]);
+		if(!$row)exit('{"code":-1,"msg":"目录不存在"}');
+	}
+	$pwd = generateUploadInvitePwd();
+	$max_size = parseUploadInviteMaxSize(isset($_POST['max_size_mb'])?$_POST['max_size_mb']:1024);
+	$expire_time = parseUploadInviteExpireTime(isset($_POST['expire_hours'])?$_POST['expire_hours']:0);
+	if($expire_time === false)exit('{"code":-1,"msg":"有效时长必须为非负整数"}');
+	$remark = parseUploadInviteRemark(isset($_POST['remark'])?$_POST['remark']:'');
+	$exist = $DB->getRow("SELECT * FROM pre_upload_invite WHERE folder_id=:folder_id AND uid=:uid", [':folder_id'=>$folder_id, ':uid'=>$uid]);
+	if($exist){
+		$token = $exist['token'];
+		if($DB->exec("UPDATE pre_upload_invite SET pwd=:pwd, max_size=:max_size, expire_time=:expire_time, remark=:remark, enable=1, addtime=NOW(), fail_count=0, last_failtime=NULL WHERE id=:id", [':pwd'=>$pwd, ':max_size'=>$max_size, ':expire_time'=>$expire_time, ':remark'=>$remark, ':id'=>$exist['id']]) === false){
+			exitUploadInviteDatabaseError();
+		}
+	}else{
+		$token = generateUploadInviteToken();
+		if($DB->exec("INSERT INTO pre_upload_invite (token, folder_id, uid, pwd, max_size, expire_time, remark, enable, addtime, uploads, fail_count, last_failtime) VALUES (:token, :folder_id, :uid, :pwd, :max_size, :expire_time, :remark, 1, NOW(), 0, 0, NULL)", [':token'=>$token, ':folder_id'=>$folder_id, ':uid'=>$uid, ':pwd'=>$pwd, ':max_size'=>$max_size, ':expire_time'=>$expire_time, ':remark'=>$remark]) === false){
+			exitUploadInviteDatabaseError();
+		}
+	}
+	$inviteurl = $siteurl.'invite_upload.php?token='.$token.'&pwd='.$pwd;
+	exit(json_encode(['code'=>0, 'msg'=>'邀请链接已生成', 'url'=>$inviteurl, 'token'=>$token, 'pwd'=>$pwd, 'max_size'=>$max_size, 'expire_time'=>$expire_time, 'remark'=>$remark]));
+break;
+
+case 'listMyUploadInvites':
+	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
+	$invites = $DB->getAll("SELECT i.id, i.token, i.folder_id, i.pwd, i.max_size, i.expire_time, i.remark, i.enable, i.addtime, i.uploads, f.name as folder_name FROM pre_upload_invite i LEFT JOIN pre_folder f ON i.folder_id=f.id WHERE i.uid=:uid ORDER BY i.id DESC", [':uid'=>$uid]);
+	foreach($invites as &$invite){
+		$invite['inviteurl'] = $siteurl.'invite_upload.php?token='.$invite['token'].'&pwd='.$invite['pwd'];
+		if(intval($invite['folder_id']) === 0){
+			$invite['folder_name'] = '根目录';
+		}
+		$invite['max_size_mb'] = intval($invite['max_size']) > 0 ? round(intval($invite['max_size']) / 1024 / 1024, 2) : 0;
+		$invite['expired'] = !empty($invite['expire_time']) && strtotime($invite['expire_time']) < time();
+		$invite['status_text'] = intval($invite['uploads']) > 0 ? '已完成' : (intval($invite['enable']) === 1 ? ($invite['expired'] ? '已过期' : '有效') : '已停用');
+	}
+	exit(json_encode(['code'=>0, 'data'=>$invites]));
+break;
+
+case 'updateUploadInvite':
+	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
+	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	$id = isset($_POST['id'])?intval($_POST['id']):0;
+	if($id<=0)exit('{"code":-1,"msg":"参数错误"}');
+	$row = $DB->getRow("SELECT * FROM pre_upload_invite WHERE id=:id AND uid=:uid", [':id'=>$id, ':uid'=>$uid]);
+	if(!$row)exit('{"code":-1,"msg":"邀请不存在"}');
+	$max_size = parseUploadInviteMaxSize(isset($_POST['max_size_mb'])?$_POST['max_size_mb']:1024);
+	$remark = parseUploadInviteRemark(isset($_POST['remark'])?$_POST['remark']:$row['remark']);
+	$expire_time = $row['expire_time'];
+	if(array_key_exists('expire_hours', $_POST) && $_POST['expire_hours'] !== ''){
+		$expire_time = parseUploadInviteExpireTime($_POST['expire_hours']);
+		if($expire_time === false)exit('{"code":-1,"msg":"有效时长必须为非负整数"}');
+	}
+	$enable = isset($_POST['enable']) ? intval($_POST['enable']) : 1;
+	$enable = $enable === 1 ? 1 : 0;
+	if($DB->exec("UPDATE pre_upload_invite SET max_size=:max_size, expire_time=:expire_time, remark=:remark, enable=:enable WHERE id=:id AND uid=:uid", [':max_size'=>$max_size, ':expire_time'=>$expire_time, ':remark'=>$remark, ':enable'=>$enable, ':id'=>$id, ':uid'=>$uid]) === false){
+		exitUploadInviteDatabaseError();
+	}
+	exit(json_encode(['code'=>0, 'msg'=>'邀请设置已更新']));
+break;
+
+case 'toggleUploadInvite':
+	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
+	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	$id = isset($_POST['id'])?intval($_POST['id']):0;
+	$enable = isset($_POST['enable']) ? intval($_POST['enable']) : 1;
+	$enable = $enable === 1 ? 1 : 0;
+	if($id<=0)exit('{"code":-1,"msg":"参数错误"}');
+	$row = $DB->getRow("SELECT id FROM pre_upload_invite WHERE id=:id AND uid=:uid", [':id'=>$id, ':uid'=>$uid]);
+	if(!$row)exit('{"code":-1,"msg":"邀请不存在"}');
+	$DB->exec("UPDATE pre_upload_invite SET enable=:enable WHERE id=:id AND uid=:uid", [':enable'=>$enable, ':id'=>$id, ':uid'=>$uid]);
+	exit(json_encode(['code'=>0, 'msg'=>$enable ? '邀请已启用' : '邀请已停用']));
+break;
+
+case 'deleteUploadInvite':
+	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
+	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	$id = isset($_POST['id'])?intval($_POST['id']):0;
+	if($id<=0)exit('{"code":-1,"msg":"参数错误"}');
+	$row = $DB->getRow("SELECT id FROM pre_upload_invite WHERE id=:id AND uid=:uid", [':id'=>$id, ':uid'=>$uid]);
+	if(!$row)exit('{"code":-1,"msg":"邀请不存在"}');
+	$DB->exec("DELETE FROM pre_upload_invite WHERE id=:id AND uid=:uid", [':id'=>$id, ':uid'=>$uid]);
+	exit(json_encode(['code'=>0, 'msg'=>'邀请已删除']));
 break;
 
 case 'checkSharePwd':
