@@ -9,8 +9,7 @@ if($conf['forcelogin']==1 && !$islogin2){
 $title = '上传文件 - '.$conf['title'];
 include SYSTEM_ROOT.'header.php';
 
-$csrf_token = md5(mt_rand(0,999).time());
-$_SESSION['csrf_token'] = $csrf_token;
+$csrf_token = createCsrfToken();
 ?>
 <div class="container" id="app">
     <div class="row">

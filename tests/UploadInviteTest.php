@@ -26,6 +26,7 @@ class UploadInviteTest
         $this->testMineViewHasInviteEntry();
         $this->testInviteManagementPageAndApis();
         $this->testInviteUploadPagePostsInviteContext();
+        $this->testMineFolderLongPollRefresh();
 
         echo "\n=== 测试结果 ===\n";
         echo "通过: {$this->passed}\n";
@@ -227,6 +228,21 @@ class UploadInviteTest
         $this->assert(strpos($page, 'inviteMaxSize') !== false, '邀请上传页应展示/预校验大小限制');
         $this->assert(strpos($page, '无需登录') !== false, '页面应明确无需登录');
         $this->assert(strpos($page, '邀请上传到：') === false, '邀请上传页不应暴露目标目录');
+        echo "\n";
+    }
+
+    private function testMineFolderLongPollRefresh()
+    {
+        echo "--- 当前目录长轮询刷新 ---\n";
+        $ajax = file_get_contents(__DIR__ . '/../ajax.php');
+        $view = file_get_contents(__DIR__ . '/../includes/mine_view.php');
+        $this->assert(strpos($ajax, "case 'mineFolderVersion'") !== false, '应提供目录版本接口');
+        $this->assert(strpos($ajax, "\$since = isset(\$_GET['since'])") !== false, '目录版本接口应接收前端当前版本');
+        $this->assert(strpos($ajax, 'usleep(1000000)') !== false, '目录版本接口应支持等待变化后立即返回');
+        $this->assert(strpos($ajax, 'session_write_close') !== false, '长轮询等待前应释放会话锁，避免阻塞同用户其他请求');
+        $this->assert(strpos($ajax, "'changed'=>") !== false, '目录版本接口应返回是否变化');
+        $this->assert(strpos($view, "wait=1&since=") !== false, '文件管理页应使用长轮询订阅当前目录变化');
+        $this->assert(strpos($view, 'timeout: 30000') !== false, '前端请求超时时间应覆盖服务端等待窗口');
         echo "\n";
     }
 }

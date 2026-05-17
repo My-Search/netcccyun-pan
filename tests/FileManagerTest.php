@@ -26,6 +26,9 @@ class FileManagerTest
         $this->testMineViewFolderUrlPersistence();
         $this->testMineViewRefreshesAfterEachUploadCompletion();
         $this->testMineViewUsesInlineListLoading();
+        $this->testCsrfTokenSupportsMultipleOpenPages();
+        $this->testNavbarClickFocusStyleDoesNotStick();
+        $this->testHomeStatsUseLightCardColors();
         $this->testSharedFileReferenceDeleteAndMoveUseFileId();
         $this->testExistingHashUploadCreatesNewReference();
 
@@ -234,6 +237,46 @@ class FileManagerTest
         $this->assert(strpos($view, 'uploadRefreshTimer') !== false, '上传完成后的列表刷新应合并防抖');
         echo "
 ";
+    }
+
+    private function testCsrfTokenSupportsMultipleOpenPages()
+    {
+        echo "--- 多标签页 CSRF token 兼容 ---\n";
+        $_SESSION = [];
+        $firstToken = createCsrfToken();
+        $secondToken = createCsrfToken();
+        $ajax = file_get_contents(__DIR__ . '/../ajax.php');
+        $view = file_get_contents(__DIR__ . '/../includes/mine_view.php');
+
+        $this->assert($firstToken !== $secondToken, '连续打开页面应生成不同 token');
+        $this->assert(checkCsrfToken($firstToken), '旧页面 token 不应因新页面打开而失效');
+        $this->assert(checkCsrfToken($secondToken), '新页面 token 应有效');
+        $this->assert(strpos($ajax, 'checkCsrfToken') !== false, '写接口应通过统一 CSRF 校验函数校验');
+        $this->assert(strpos($view, 'createCsrfToken()') !== false, '文件管理页应通过统一函数生成 CSRF token');
+        echo "\n";
+    }
+
+    private function testNavbarClickFocusStyleDoesNotStick()
+    {
+        echo "--- 导航点击焦点样式 ---\n";
+        $header = file_get_contents(__DIR__ . '/../includes/header.php');
+        $this->assert(strpos($header, '.modern-navbar .navbar-nav > li > a:focus') !== false, '导航链接应覆盖默认 focus 样式');
+        $this->assert(strpos($header, 'box-shadow: none !important;') !== false, '导航点击后不应残留黑色焦点阴影');
+        $this->assert(strpos($header, '.modern-navbar .navbar-nav > li:not(.active) > a:focus') !== false, '非激活导航点击后不应残留灰色背景');
+        $this->assert(strpos($header, ':focus-visible') !== false, '键盘导航仍应保留可见焦点样式');
+        echo "\n";
+    }
+
+    private function testHomeStatsUseLightCardColors()
+    {
+        echo "--- 首页统计卡片企业样式 ---\n";
+        $home = file_get_contents(__DIR__ . '/../index_home.php');
+        $this->assert(strpos($home, 'home-page-title') !== false, '首页应提供企业工作台标题区域');
+        $this->assert(strpos($home, 'background: #fff; border-radius: 12px') !== false, '统计卡片应使用白底企业卡片样式');
+        $this->assert(strpos($home, 'border: 1px solid #e5e7eb') !== false, '首页卡片应使用低饱和边框');
+        $this->assert(strpos($home, 'color: #111827') !== false, '统计数字应使用专业深色文本');
+        $this->assert(strpos($home, 'grid-template-columns: repeat(4') !== false, '统计区应使用规则栅格布局');
+        echo "\n";
     }
 
     private function testSharedFileReferenceDeleteAndMoveUseFileId()

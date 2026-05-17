@@ -5,8 +5,7 @@ if(!$islogin2){
     exit("<script language='javascript'>alert('请先登录');window.location.href='./login.php';</script>");
 }
 $title = '个人信息 - ' . $conf['title'];
-$csrf_token = md5(mt_rand(0,999).time());
-$_SESSION['csrf_token'] = $csrf_token;
+$csrf_token = createCsrfToken();
 include SYSTEM_ROOT.'header.php';
 
 $typeMap = ['local'=>'本地账号','qq'=>'QQ登录','wx'=>'微信登录'];

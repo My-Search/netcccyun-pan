@@ -316,6 +316,20 @@ function getShareFolderTree($parentId, $uid, $DB){
 	return $result;
 }
 
+function getMineFolderVersion($folder_id, $uid){
+	global $DB;
+	$folderVersion = $DB->getRow("SELECT COUNT(*) AS total, COALESCE(MAX(id), 0) AS max_id, COALESCE(MAX(addtime), '') AS max_addtime FROM pre_folder WHERE uid=:uid AND parent_id=:parent_id", [':uid'=>$uid, ':parent_id'=>$folder_id]);
+	$fileVersion = $DB->getRow("SELECT COUNT(*) AS total, COALESCE(MAX(id), 0) AS max_id, COALESCE(MAX(addtime), '') AS max_addtime FROM pre_file WHERE uid=:uid AND folder_id=:folder_id", [':uid'=>$uid, ':folder_id'=>$folder_id]);
+	return implode('|', [
+		intval($folderVersion['total']),
+		intval($folderVersion['max_id']),
+		$folderVersion['max_addtime'],
+		intval($fileVersion['total']),
+		intval($fileVersion['max_id']),
+		$fileVersion['max_addtime'],
+	]);
+}
+
 function createFoldersRecursively($folders, $targetParentId, $uid, $DB, &$map){
 	foreach($folders as $f){
 		$exist = $DB->getRow("SELECT * FROM pre_folder WHERE uid=:uid AND parent_id=:parent_id AND name=:name", [':uid'=>$uid, ':parent_id'=>$targetParentId, ':name'=>$f['name']]);
@@ -338,7 +352,7 @@ function createFoldersRecursively($folders, $targetParentId, $uid, $DB, &$map){
 
 switch($act){
 case 'pre_upload':
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	$invite_token = isset($_POST['invite_token'])?trim($_POST['invite_token']):'';
 	$invite_pwd = isset($_POST['invite_pwd'])?trim($_POST['invite_pwd']):'';
 	$inviteContext = null;
@@ -543,7 +557,7 @@ case 'upload_part':
 		$errMsg = isset($errMap[$_FILES['file']['error']]) ? $errMap[$_FILES['file']['error']] : '未知上传错误('.$_FILES['file']['error'].')';
 		exit('{"code":-1,"msg":"'.$errMsg.'","error":"php_upload"}');
 	}
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	if($conf['forcelogin']==1 && !$islogin2 && empty($_SESSION['upload']['invite_token']))exit('{"code":-1,"msg":"请先登录"}');
 	$chunk = intval($_POST['chunk']);
 	$hash = trim($_POST['hash']);
@@ -649,7 +663,7 @@ case 'upload_part':
 break;
 
 case 'complete_upload':
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	if($conf['forcelogin']==1 && !$islogin2 && empty($_SESSION['upload']['invite_token']))exit('{"code":-1,"msg":"请先登录"}');
 	$hash = trim($_POST['hash']);
 	if(!$_SESSION['upload'] || !$_SESSION['upload']['hash'] || $_SESSION['upload']['hash']!=$hash){
@@ -740,7 +754,7 @@ break;
 case 'deleteFile':
 	$file_id = isset($_POST['file_id'])?intval($_POST['file_id']):0;
 	$hash = isset($_POST['hash'])?trim($_POST['hash']):'';
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	if($file_id > 0){
 		$row = $DB->getRow("SELECT * FROM `pre_file` WHERE `id`=:id", [':id'=>$file_id]);
 	}else{
@@ -839,7 +853,7 @@ break;
 
 case 'moveFile':
 	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	$file_id = isset($_POST['file_id'])?intval($_POST['file_id']):0;
 	$hash = isset($_POST['hash'])?trim($_POST['hash']):'';
 	$folder_id = isset($_POST['folder_id'])?intval($_POST['folder_id']):0;
@@ -900,7 +914,36 @@ case 'listMine':
 
 	$files = $DB->getAll("SELECT id, name, type, size, hash, addtime, count, remark FROM pre_file WHERE uid=? AND folder_id=? $type_condition ORDER BY id DESC", $params);
 	$path = getFolderPath($folder_id, $uid);
-	exit(json_encode(['code'=>0, 'folders'=>$folders, 'files'=>$files, 'path'=>$path, 'folder_id'=>$folder_id]));
+	exit(json_encode(['code'=>0, 'folders'=>$folders, 'files'=>$files, 'path'=>$path, 'folder_id'=>$folder_id, 'version'=>getMineFolderVersion($folder_id, $uid)]));
+break;
+
+case 'mineFolderVersion':
+	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
+	$folder_id = isset($_GET['folder_id'])?intval($_GET['folder_id']):0;
+	if($folder_id>0){
+		$frow = $DB->getRow("SELECT id FROM pre_folder WHERE id=:id AND uid=:uid", [':id'=>$folder_id, ':uid'=>$uid]);
+		if(!$frow) $folder_id = 0;
+	}
+	$since = isset($_GET['since']) ? strval($_GET['since']) : '';
+	$wait = isset($_GET['wait']) ? intval($_GET['wait']) : 0;
+	$maxWaitSeconds = 25;
+	$startedAt = time();
+	if($wait > 0){
+		@set_time_limit($maxWaitSeconds + 5);
+		if(function_exists('session_write_close'))@session_write_close();
+	}
+	do{
+		$version = getMineFolderVersion($folder_id, $uid);
+		$changed = $since === '' || $version !== $since;
+		if($changed || $wait <= 0){
+			exit(json_encode(['code'=>0, 'folder_id'=>$folder_id, 'version'=>$version, 'changed'=>$changed]));
+		}
+		if(connection_aborted())exit;
+		usleep(1000000);
+	}while(time() - $startedAt < $maxWaitSeconds);
+	$version = getMineFolderVersion($folder_id, $uid);
+	$changed = $since === '' || $version !== $since;
+	exit(json_encode(['code'=>0, 'folder_id'=>$folder_id, 'version'=>$version, 'changed'=>$changed]));
 break;
 
 case 'createShare':
@@ -929,7 +972,7 @@ break;
 
 case 'createUploadInvite':
 	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	$folder_id = isset($_POST['folder_id'])?intval($_POST['folder_id']):0;
 	if($folder_id < 0)$folder_id = 0;
 	if($folder_id > 0){
@@ -974,7 +1017,7 @@ break;
 
 case 'updateUploadInvite':
 	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	$id = isset($_POST['id'])?intval($_POST['id']):0;
 	if($id<=0)exit('{"code":-1,"msg":"参数错误"}');
 	$row = $DB->getRow("SELECT * FROM pre_upload_invite WHERE id=:id AND uid=:uid", [':id'=>$id, ':uid'=>$uid]);
@@ -996,7 +1039,7 @@ break;
 
 case 'toggleUploadInvite':
 	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	$id = isset($_POST['id'])?intval($_POST['id']):0;
 	$enable = isset($_POST['enable']) ? intval($_POST['enable']) : 1;
 	$enable = $enable === 1 ? 1 : 0;
@@ -1009,7 +1052,7 @@ break;
 
 case 'deleteUploadInvite':
 	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	$id = isset($_POST['id'])?intval($_POST['id']):0;
 	if($id<=0)exit('{"code":-1,"msg":"参数错误"}');
 	$row = $DB->getRow("SELECT id FROM pre_upload_invite WHERE id=:id AND uid=:uid", [':id'=>$id, ':uid'=>$uid]);
@@ -1041,7 +1084,7 @@ case 'checkSharePwd':
 break;
 
 case 'saveShare':
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
 	$token = isset($_POST['token'])?trim($_POST['token']):'';
 	$pwd = isset($_POST['pwd'])?trim($_POST['pwd']):'';
@@ -1100,7 +1143,7 @@ break;
 
 case 'updateSharePwd':
 	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	$id = isset($_POST['id'])?intval($_POST['id']):0;
 	$pwd = isset($_POST['pwd'])?trim(htmlspecialchars($_POST['pwd'])):'';
 	if($id<=0)exit('{"code":-1,"msg":"参数错误"}');
@@ -1188,7 +1231,7 @@ break;
 
 case 'uploadAvatar':
 	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	if(!isset($_FILES['avatar']))exit('{"code":-1,"msg":"请选择图片文件"}');
 	if($_FILES['avatar']['error'] !== UPLOAD_ERR_OK){
 		$errMap = [
@@ -1271,7 +1314,7 @@ break;
 
 case 'updateProfile':
 	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	$nickname = isset($_POST['nickname'])?trim(htmlspecialchars($_POST['nickname'])):'';
 	if(empty($nickname))exit('{"code":-1,"msg":"昵称不能为空"}');
 	if(mb_strlen($nickname) > 32)exit('{"code":-1,"msg":"昵称不能超过32个字符"}');
@@ -1326,7 +1369,7 @@ break;
 
 case 'saveFileContent':
 	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
-	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	if(!checkCsrfToken(isset($_POST['csrf_token'])?$_POST['csrf_token']:''))exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
 	$hash = isset($_POST['hash'])?trim($_POST['hash']):'';
 	$content = isset($_POST['content'])?$_POST['content']:'';
 	if(!preg_match('/^[0-9a-z]{32}$/i', $hash))exit('{"code":-1,"msg":"hash error"}');

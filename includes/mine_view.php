@@ -1,8 +1,7 @@
 <?php
 $title = '我的文件 - ' . $conf['title'];
 $is_file = false;
-$csrf_token = md5(mt_rand(0,999).time());
-$_SESSION['csrf_token'] = $csrf_token;
+$csrf_token = createCsrfToken();
 include SYSTEM_ROOT.'header.php';
 ?>
 <style>
@@ -105,6 +104,10 @@ var siteurl = '<?php echo $siteurl; ?>';
 var currentFilterType = '';
 var uploadRefreshTimer = null;
 var folderLoadRequest = null;
+var folderWatchTimer = null;
+var folderVersionRequest = null;
+var currentFolderVersion = '';
+var folderWatchRetryInterval = 1000;
 
 function getUrlParam(name){
     var reg = new RegExp('(^|&)'+name+'=([^&]*)(&|$)');
@@ -166,10 +169,18 @@ $(function(){
         e.preventDefault();
     });
     window.addEventListener('beforeunload', function(e){
+        stopFolderWatch();
         if(uploadRunning){
             var msg = '文件正在上传中，离开页面将中断上传，确定要离开吗？';
             e.returnValue = msg;
             return msg;
+        }
+    });
+    document.addEventListener('visibilitychange', function(){
+        if(document.hidden){
+            stopFolderWatch();
+        }else{
+            startFolderWatch();
         }
     });
 });
@@ -209,6 +220,8 @@ function loadFolder(folder_id, options){
                 }
                 renderBreadcrumb(res.path);
                 renderItems(res.folders, res.files);
+                currentFolderVersion = res.version || '';
+                startFolderWatch();
                 var hasContent = res.folders.length > 0 || res.files.length > 0;
                 $('#emptyTip').toggle(!hasContent);
             }else{
@@ -223,6 +236,62 @@ function loadFolder(folder_id, options){
         },
         complete: function(){
             folderLoadRequest = null;
+        }
+    });
+}
+
+function startFolderWatch(){
+    stopFolderWatch();
+    if(document.hidden || !currentFolderVersion) return;
+    checkCurrentFolderVersion();
+}
+
+function stopFolderWatch(){
+    if(folderWatchTimer){
+        clearTimeout(folderWatchTimer);
+        folderWatchTimer = null;
+    }
+    if(folderVersionRequest && folderVersionRequest.readyState !== 4){
+        folderVersionRequest.abort();
+    }
+    folderVersionRequest = null;
+}
+
+function checkCurrentFolderVersion(){
+    if(document.hidden){
+        stopFolderWatch();
+        return;
+    }
+    if(folderVersionRequest && folderVersionRequest.readyState !== 4) return;
+
+    var watchedFolderId = currentFolderId;
+    var shouldContinueWatch = true;
+    var url = 'ajax.php?act=mineFolderVersion&folder_id=' + watchedFolderId;
+    if(currentFolderVersion){
+        url += '&wait=1&since=' + encodeURIComponent(currentFolderVersion);
+    }
+
+    folderVersionRequest = $.ajax({
+        url: url,
+        type: 'GET',
+        dataType: 'json',
+        timeout: 30000,
+        success: function(res){
+            if(watchedFolderId !== currentFolderId) return;
+            if(res.code == 0 && res.version && currentFolderVersion && res.version !== currentFolderVersion){
+                shouldContinueWatch = false;
+                loadFolder(currentFolderId, {updateUrl:false});
+                return;
+            }
+            if(res.code == 0 && res.version){
+                currentFolderVersion = res.version;
+            }
+        },
+        complete: function(xhr, status){
+            folderVersionRequest = null;
+            if(status !== 'abort' && shouldContinueWatch && !document.hidden){
+                folderWatchTimer = setTimeout(checkCurrentFolderVersion, folderWatchRetryInterval);
+            }
         }
     });
 }

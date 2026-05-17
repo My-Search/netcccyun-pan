@@ -49,11 +49,27 @@
   border-radius: 8px;
   margin: 8px 4px;
 }
-.modern-navbar .navbar-nav > li > a:hover,
-.modern-navbar .navbar-nav > li > a:focus {
+.modern-navbar .navbar-nav > li > a:hover {
   color: #333 !important;
   background: #f8f9fa !important;
   transform: translateY(-1px);
+}
+.modern-navbar .navbar-nav > li > a:focus,
+.modern-navbar .navbar-brand:focus,
+.modern-navbar .dropdown-menu > li > a:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+.modern-navbar .navbar-nav > li:not(.active) > a:focus {
+  color: #555 !important;
+  background: transparent !important;
+  transform: none;
+}
+.modern-navbar .navbar-nav > li > a:focus-visible,
+.modern-navbar .navbar-brand:focus-visible,
+.modern-navbar .dropdown-menu > li > a:focus-visible {
+  outline: 2px solid #4facfe !important;
+  outline-offset: 2px;
 }
 .modern-navbar .navbar-nav > li.active > a {
   color: #4facfe !important;

@@ -5,8 +5,7 @@ $title = '文件查看 - '.$conf['title'];
 $is_file=true;
 include SYSTEM_ROOT.'header.php';
 
-$csrf_token = md5(mt_rand(0,999).time());
-$_SESSION['csrf_token'] = $csrf_token;
+$csrf_token = createCsrfToken();
 
 $hash = isset($_GET['hash'])?$_GET['hash']:exit("<script language='javascript'>window.location.href='./';</script>");
 $pwd = isset($_GET['pwd'])?$_GET['pwd']:null;

@@ -157,6 +157,50 @@ function random($length, $numeric = 0) {
 	}
 	return $hash;
 }
+
+/**
+ * 创建页面 CSRF token。
+ * 主流程：同一会话保留最近一批 token，避免多标签页打开新页面后覆盖旧页面 token。
+ */
+function createCsrfToken(){
+	if(!isset($_SESSION['csrf_tokens']) || !is_array($_SESSION['csrf_tokens'])){
+		$_SESSION['csrf_tokens'] = [];
+	}
+	$now = time();
+	foreach($_SESSION['csrf_tokens'] as $token => $createdAt){
+		if($createdAt < $now - 21600){
+			unset($_SESSION['csrf_tokens'][$token]);
+		}
+	}
+	while(count($_SESSION['csrf_tokens']) >= 20){
+		array_shift($_SESSION['csrf_tokens']);
+	}
+	if(function_exists('random_bytes')){
+		$token = bin2hex(random_bytes(16));
+	}else{
+		$token = md5(uniqid().mt_rand(0,999).microtime(true));
+	}
+	$_SESSION['csrf_tokens'][$token] = $now;
+	$_SESSION['csrf_token'] = $token;
+	return $token;
+}
+
+/**
+ * 校验页面 CSRF token。
+ * 主流程：兼容旧的单 token 字段，同时接受会话内仍有效的最近 token。
+ */
+function checkCsrfToken($token){
+	$token = strval($token);
+	if($token === '')return false;
+	if(isset($_SESSION['csrf_token']) && function_exists('hash_equals') && hash_equals($_SESSION['csrf_token'], $token))return true;
+	if(isset($_SESSION['csrf_token']) && !function_exists('hash_equals') && $_SESSION['csrf_token'] === $token)return true;
+	if(!isset($_SESSION['csrf_tokens']) || !is_array($_SESSION['csrf_tokens']) || !isset($_SESSION['csrf_tokens'][$token]))return false;
+	if($_SESSION['csrf_tokens'][$token] < time() - 21600){
+		unset($_SESSION['csrf_tokens'][$token]);
+		return false;
+	}
+	return true;
+}
 function showmsg($content = '未知的异常',$type = 4,$back = false)
 {
 switch($type)

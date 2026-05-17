@@ -4,8 +4,7 @@ include("./includes/common.php");
 
 $title = '邀请上传 - '.$conf['title'];
 $is_file = false;
-$csrf_token = md5(mt_rand(0,999).time());
-$_SESSION['csrf_token'] = $csrf_token;
+$csrf_token = createCsrfToken();
 
 $token = isset($_GET['token'])?trim($_GET['token']):'';
 $pwd = isset($_GET['pwd'])?trim($_GET['pwd']):'';
