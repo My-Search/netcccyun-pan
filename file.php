@@ -204,6 +204,7 @@ if($filetype==1){
                       <div class="row" align="center">
                           <div class="col-md-12">
                             <input type="hidden" id="hash" name="hash" value="<?php echo $hash?>">
+                            <input type="hidden" id="file_id" name="file_id" value="<?php echo $row['id']?>">
                             <input type="hidden" id="csrf_token" name="csrf_token" value="<?php echo $csrf_token?>">
                             <button onclick="delete_confirm()" class="btn btn-raised btn-danger"><i class="fa fa-close" aria-hidden="true"></i> 删除文件</button>
                           </div>
@@ -267,7 +268,7 @@ var ap = new APlayer({
 <script src="https://s4.zstatic.net/ajax/libs/clipboard.js/1.7.1/clipboard.min.js"></script>
 <script>
 function delete_confirm(){
-  var hash = $("#hash").val();
+  var file_id = $("#file_id").val();
   var csrf_token = $("#csrf_token").val();
   var confirmobj = layer.confirm('删除文件后不可恢复，确定删除吗？', {
 	  btn: ['确定','取消'], icon: 0
@@ -276,7 +277,7 @@ function delete_confirm(){
 	  $.ajax({
       type : 'POST',
       url : 'ajax.php?act=deleteFile',
-      data : {hash:hash, csrf_token:csrf_token},
+      data : {file_id:file_id, csrf_token:csrf_token},
       dataType : 'json',
       success : function(data) {
         layer.close(ii);

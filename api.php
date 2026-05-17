@@ -106,10 +106,13 @@ if($existing && $existing['hash'] != $hash){
 $row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
 if($row){
 	unset($_SESSION['csrf_token']);
-	$downurl = $siteurl.'down.php/'.$row['hash'].'.'.$row['type'];
-	if(!empty($row['pwd']))$downurl .= '&'.$row['pwd'];
-	$result = ['code'=>0, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$row['id'], 'downurl'=>$downurl];
-	if(is_view($row['type']))$result['viewurl'] = $siteurl.'view.php/'.$hash.'.'.$row['type'];
+	$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id)", [':name'=>$name, ':type'=>$ext, ':size'=>$size, ':hash'=>$hash, ':ip'=>$clientip, ':pwd'=>$pwd, ':uid'=>($uid?$uid:0), ':folder_id'=>$folder_id]);
+	if(!$sds)showresult(['code'=>-1, 'msg'=>'上传失败'.$DB->error(), 'error'=>'database']);
+	$id = $DB->lastInsertId();
+	$downurl = $siteurl.'down.php/'.$hash.'.'.$ext;
+	if(!empty($pwd))$downurl .= '&'.$pwd;
+	$result = ['code'=>0, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$id, 'downurl'=>$downurl];
+	if(is_view($ext))$result['viewurl'] = $siteurl.'view.php/'.$hash.'.'.$ext;
 	showresult($result);
 }
 $result = $stor->upload($hash, $_FILES['file']['tmp_name'], minetype($ext));

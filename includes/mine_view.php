@@ -103,6 +103,8 @@ var currentFolderId = 0;
 var currentData = {folders:[], files:[]};
 var siteurl = '<?php echo $siteurl; ?>';
 var currentFilterType = '';
+var uploadRefreshTimer = null;
+var folderLoadRequest = null;
 
 function getUrlParam(name){
     var reg = new RegExp('(^|&)'+name+'=([^&]*)(&|$)');
@@ -172,6 +174,11 @@ $(function(){
     });
 });
 
+function showFolderLoading(){
+    $('#emptyTip').hide();
+    $('#itemList').html('<div class="mine-inline-loading"><i class="fa fa-spinner fa-spin"></i> 正在加载文件列表...</div>');
+}
+
 function loadFolder(folder_id, options){
     options = options || {};
     folder_id = normalizeFolderId(folder_id);
@@ -180,27 +187,44 @@ function loadFolder(folder_id, options){
     if(uploadNeedRefresh && !uploadRunning){
         uploadNeedRefresh = false;
     }
-    var ii = layer.load(1, {shade:[0.1,'#fff']});
+    if(folderLoadRequest && folderLoadRequest.readyState !== 4){
+        folderLoadRequest.abort();
+    }
+    showFolderLoading();
     var url = 'ajax.php?act=listMine&folder_id='+folder_id;
     if(currentFilterType){
         url += '&type=' + encodeURIComponent(currentFilterType);
     }
-    $.get(url, function(res){
-        layer.close(ii);
-        if(res.code == 0){
-            currentData = res;
-            currentFolderId = normalizeFolderId(res.folder_id);
-            if(options.updateUrl !== false){
-                updateFolderUrl(currentFolderId, options.replaceUrl === true);
+    folderLoadRequest = $.ajax({
+        url: url,
+        type: 'GET',
+        dataType: 'json',
+        timeout: 15000,
+        success: function(res){
+            if(res.code == 0){
+                currentData = res;
+                currentFolderId = normalizeFolderId(res.folder_id);
+                if(options.updateUrl !== false){
+                    updateFolderUrl(currentFolderId, options.replaceUrl === true);
+                }
+                renderBreadcrumb(res.path);
+                renderItems(res.folders, res.files);
+                var hasContent = res.folders.length > 0 || res.files.length > 0;
+                $('#emptyTip').toggle(!hasContent);
+            }else{
+                $('#itemList').empty();
+                layer.msg(res.msg, {icon:2});
             }
-            renderBreadcrumb(res.path);
-            renderItems(res.folders, res.files);
-            var hasContent = res.folders.length > 0 || res.files.length > 0;
-            $('#emptyTip').toggle(!hasContent);
-        }else{
-            layer.msg(res.msg, {icon:2});
+        },
+        error: function(xhr, status){
+            if(status === 'abort') return;
+            $('#itemList').html('<div class="mine-inline-error">文件列表加载失败，请稍后重试</div>');
+            layer.msg('文件列表加载失败，请稍后重试', {icon:2});
+        },
+        complete: function(){
+            folderLoadRequest = null;
         }
-    }, 'json');
+    });
 }
 
 function renderBreadcrumb(path){
@@ -226,7 +250,7 @@ function renderItems(folders, files){
     // 渲染文件
     for(var i=0; i<files.length; i++){
         var f = files[i];
-        html += '<div class="item-card file-item" draggable="true" data-file-hash="'+f.hash+'" data-name="'+escapeHtml(f.name)+'" data-type="'+f.type+'">';
+        html += '<div class="item-card file-item" draggable="true" data-file-id="'+f.id+'" data-file-hash="'+f.hash+'" data-name="'+escapeHtml(f.name)+'" data-type="'+f.type+'">';
         html += '<div class="icon-wrap"><i class="fa '+typeToIcon(f.type)+'"></i></div>';
         html += '<div class="item-name">'+escapeHtml(f.name)+'</div>';
         if(f.remark){
@@ -256,7 +280,7 @@ function initItemEvents(){
     $('#itemList').on('contextmenu', '.file-item', function(e){
         e.preventDefault();
         var $el = $(this);
-        fileContextMenu(e, $el.data('file-hash'), $el.data('name'), $el.data('type'));
+        fileContextMenu(e, $el.data('file-id'), $el.data('file-hash'), $el.data('name'), $el.data('type'));
     });
 
     initDragAndDrop();
@@ -264,19 +288,19 @@ function initItemEvents(){
 }
 
 function initDragAndDrop(){
-  var draggedHash = null;
+  var draggedFileId = null;
   var draggedFolderId = null;
 
   // 使用事件委托处理拖拽
   $('#itemList').off('dragstart', '.file-item').on('dragstart', '.file-item', function(e){
-    draggedHash = $(this).data('file-hash');
+    draggedFileId = $(this).data('file-id');
     draggedFolderId = null;
     e.originalEvent.dataTransfer.effectAllowed = 'move';
     $(this).css('opacity', '0.5');
   });
 
   $('#itemList').off('dragstart', '.folder-item').on('dragstart', '.folder-item', function(e){
-    draggedHash = null;
+    draggedFileId = null;
     draggedFolderId = $(this).data('folder-id');
     e.originalEvent.dataTransfer.effectAllowed = 'move';
     $(this).css('opacity', '0.5');
@@ -284,7 +308,7 @@ function initDragAndDrop(){
 
   $('#itemList').off('dragend', '.item-card').on('dragend', '.item-card', function(e){
     $(this).css('opacity', '1');
-    draggedHash = null;
+    draggedFileId = null;
     draggedFolderId = null;
   });
 
@@ -302,8 +326,8 @@ function initDragAndDrop(){
     e.preventDefault();
     $(this).removeClass('drag-over');
     var targetFolderId = $(this).data('folder-id');
-    if(draggedHash && targetFolderId !== undefined){
-      doMoveFile(draggedHash, targetFolderId);
+    if(draggedFileId && targetFolderId !== undefined){
+      doMoveFile(draggedFileId, targetFolderId);
     }else if(draggedFolderId !== null && targetFolderId !== undefined){
       // 不能移动到自己
       if(draggedFolderId != targetFolderId){
@@ -346,7 +370,7 @@ function initTouchEvents(){
             if($el.hasClass('folder-item')){
                 showMobileFolderMenu($el.data('folder-id'), $el.data('name'));
             }else{
-                showMobileFileMenu($el.data('file-hash'), $el.data('name'), $el.data('type'));
+                showMobileFileMenu($el.data('file-id'), $el.data('file-hash'), $el.data('name'), $el.data('type'));
             }
         }, LONG_PRESS_DELAY);
     });
@@ -404,7 +428,7 @@ function startTouchDrag($el, touch){
   if($el.hasClass('file-item')){
     touchDragData = {
       type: 'file',
-      hash: $el.data('file-hash')
+      fileId: $el.data('file-id')
     };
   }else if($el.hasClass('folder-item')){
     touchDragData = {
@@ -454,8 +478,8 @@ function endTouchDrag(){
   if($target.length && touchDragData){
     var targetFolderId = $target.data('folder-id');
     if(targetFolderId !== undefined){
-      if(touchDragData.type === 'file' && touchDragData.hash){
-        doMoveFile(touchDragData.hash, targetFolderId);
+      if(touchDragData.type === 'file' && touchDragData.fileId){
+        doMoveFile(touchDragData.fileId, targetFolderId);
       }else if(touchDragData.type === 'folder' && touchDragData.folderId !== undefined){
         // 不能移动到自己
         if(touchDragData.folderId != targetFolderId){
@@ -472,15 +496,15 @@ function endTouchDrag(){
   $('.item-card').removeClass('drag-over');
 }
 
-function showMobileFileMenu(hash, name, type){
+function showMobileFileMenu(fileId, hash, name, type){
   var actions = [];
   actions.push({text: '查看', cls: '', fn: function(){ window.open('./file.php?hash='+hash, '_blank'); }});
   actions.push({text: '复制直链', cls: '', fn: function(){ copyDirectLink(hash, type); }});
   if(isEditableType(type)){
     actions.push({text: '在线编辑', cls: '', fn: function(){ openTextEditor(hash, name, type); }});
   }
-  actions.push({text: '移动到', cls: '', fn: function(){ openMoveTree('file', hash, name); }});
-  actions.push({text: '删除', cls: 'mobile-menu-danger', fn: function(){ deleteFile(hash); }});
+  actions.push({text: '移动到', cls: '', fn: function(){ openMoveTree('file', fileId, name); }});
+  actions.push({text: '删除', cls: 'mobile-menu-danger', fn: function(){ deleteFile(fileId); }});
   showMobileMenu(name, actions);
 }
 
@@ -542,15 +566,15 @@ function isEditableType(type){
     return editable.indexOf((type||'').toLowerCase()) > -1;
 }
 
-function fileContextMenu(e, hash, name, type){
+function fileContextMenu(e, fileId, hash, name, type){
   e.preventDefault();
   var html = '<a href="./file.php?hash='+hash+'" target="_blank">查看</a>';
   html += '<a onclick="copyDirectLink(\''+hash+'\', \''+type+'\')">复制直链</a>';
   if(isEditableType(type)){
     html += '<a onclick="openTextEditor(\''+hash+'\', \''+escapeHtml(name)+'\', \''+type+'\')">在线编辑</a>';
   }
-  html += '<a onclick="openMoveTree(\'file\', \''+hash+'\', \''+name+'\')">移动到</a>';
-  html += '<a onclick="deleteFile(\''+hash+'\')">删除</a>';
+  html += '<a onclick="openMoveTree(\'file\', '+fileId+', \''+name+'\')">移动到</a>';
+  html += '<a onclick="deleteFile('+fileId+')">删除</a>';
   showContextMenu(e, html);
 }
 
@@ -593,11 +617,11 @@ function deleteFolder(id){
     });
 }
 
-function deleteFile(hash){
+function deleteFile(fileId){
     layer.confirm('确定删除该文件吗？', function(index){
         var ii = layer.load(1);
         var csrf = '<?php echo $csrf_token; ?>';
-        $.post('ajax.php?act=deleteFile', {hash:hash, csrf_token:csrf}, function(res){
+        $.post('ajax.php?act=deleteFile', {file_id:fileId, csrf_token:csrf}, function(res){
             layer.close(ii);
             if(res.code==0){ layer.close(index); loadFolder(currentFolderId); }
             else{ layer.msg(res.msg, {icon:2}); }
@@ -768,13 +792,13 @@ function doMoveFolder(id, parent_id){
 }
 
 // 保留旧函数名用于兼容性，实际调用openMoveTree
-function moveFile(hash){
-  openMoveTree('file', hash, '文件');
+function moveFile(fileId){
+  openMoveTree('file', fileId, '文件');
 }
 
-function doMoveFile(hash, folder_id){
+function doMoveFile(fileId, folder_id){
     var ii = layer.load(1);
-    $.post('ajax.php?act=moveFile', {hash:hash, folder_id:folder_id}, function(res){
+    $.post('ajax.php?act=moveFile', {file_id:fileId, folder_id:folder_id, csrf_token:'<?php echo $csrf_token; ?>'}, function(res){
         layer.close(ii);
         if(res.code==0){ loadFolder(currentFolderId); }
         else{ layer.msg(res.msg, {icon:2}); }
@@ -785,7 +809,13 @@ function refresh(){ loadFolder(currentFolderId); }
 
 function refreshCurrentUploadFolder(){
     uploadNeedRefresh = false;
-    loadFolder(currentFolderId, {updateUrl:false});
+    if(uploadRefreshTimer){
+        clearTimeout(uploadRefreshTimer);
+    }
+    uploadRefreshTimer = setTimeout(function(){
+        uploadRefreshTimer = null;
+        loadFolder(currentFolderId, {updateUrl:false});
+    }, 300);
 }
 
 function copyDirectLink(hash, type){
@@ -1184,7 +1214,7 @@ function traverseFileTree(item, path, files, callback){
     // 防止无限递归的安全计数器
     var maxIterations = 1000;
     var iterationCount = 0;
-    
+
     // 确保 callback 一定被调用（防止卡死）
     var callbackCalled = false;
     var safetyTimeout = setTimeout(function(){
@@ -1194,7 +1224,7 @@ function traverseFileTree(item, path, files, callback){
             if(callback) callback();
         }
     }, 5000); // 5秒安全超时
-    
+
     function safeCallback(){
         if(!callbackCalled){
             callbackCalled = true;
@@ -1202,13 +1232,13 @@ function traverseFileTree(item, path, files, callback){
             if(callback) callback();
         }
     }
-    
+
     try {
         if(!item){
             safeCallback();
             return;
         }
-        
+
         if(item.isFile){
             item.file(function(file){
                 try {

@@ -153,6 +153,39 @@ function completeUploadInvite($token){
 }
 
 /**
+ * 创建同一物理文件的新目录引用。
+ * 主流程：复用 hash 指向的物理文件，仅新增 pre_file 逻辑记录，使不同目录可独立删除/移动。
+ */
+function createFileReference($name, $type, $size, $hash, $ip, $pwd, $uid, $folder_id, $remark = null){
+	global $DB;
+	$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`,`remark`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id,:remark)", [':name'=>$name, ':type'=>$type, ':size'=>$size, ':hash'=>$hash, ':ip'=>$ip, ':pwd'=>$pwd, ':uid'=>$uid, ':folder_id'=>$folder_id, ':remark'=>$remark]);
+	if(!$sds)exit('{"code":-1,"msg":"上传失败'.$DB->error().'","error":"database"}');
+	return $DB->lastInsertId();
+}
+
+/**
+ * 通过 hash 兼容旧客户端删除请求。
+ * 主流程：仅在当前用户/会话可操作范围内匹配唯一记录；多引用歧义时要求客户端传 file_id。
+ */
+function getDeletableFileByHash($hash){
+	global $DB, $islogin2, $uid;
+	if($islogin2){
+		$rows = $DB->getAll("SELECT * FROM `pre_file` WHERE `hash`=:hash AND `uid`=:uid", [':hash'=>$hash, ':uid'=>$uid]);
+	}else{
+		if(!isset($_SESSION['fileids']) || !is_array($_SESSION['fileids']) || count($_SESSION['fileids']) === 0)return false;
+		$ids = array_map('intval', $_SESSION['fileids']);
+		$placeholders = implode(',', array_fill(0, count($ids), '?'));
+		$params = array_merge([$hash], $ids);
+		$rows = $DB->getAll("SELECT * FROM `pre_file` WHERE `hash`=? AND `id` IN ($placeholders)", $params);
+	}
+	if(!$rows || count($rows) === 0)return false;
+	if(count($rows) > 1){
+		exit('{"code":-1,"msg":"存在多个同文件引用，请刷新列表后重试"}');
+	}
+	return $rows[0];
+}
+
+/**
  * 校验免登录邀请上传上下文。
  * 主流程：校验 token 与 4 位数字密码，确认目标目录仍属于邀请创建者，并返回归属 uid/folder_id。
  */
@@ -433,14 +466,11 @@ case 'pre_upload':
 	// 检查全站 hash（秒传）
 	$row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
 	if($row && empty($overwrite_id)){
-		$file_id = $row['id'];
-		if($inviteUploadMode){
-			$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`,`remark`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id,:remark)", [':name'=>$name, ':type'=>$ext, ':size'=>$size, ':hash'=>$hash, ':ip'=>$clientip, ':pwd'=>$pwd, ':uid'=>$uploadUid, ':folder_id'=>$folder_id, ':remark'=>$remark]);
-			if(!$sds)exit('{"code":-1,"msg":"上传失败'.$DB->error().'","error":"database"}');
-			$file_id = $DB->lastInsertId();
-		}
+		$file_id = createFileReference($name, $ext, $size, $hash, $clientip, $pwd, $uploadUid, $folder_id, $remark);
 		if($inviteContext){
 			completeUploadInvite($invite_token);
+		}else{
+			$_SESSION['fileids'][] = $file_id;
 		}
 		$result = ['code'=>1, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$file_id];
 		exit(json_encode($result));
@@ -582,14 +612,11 @@ case 'upload_part':
 
 	$row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
 	if($row){
-		$file_id = $row['id'];
-		if(!empty($_SESSION['upload']['invite_token'])){
-			$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`,`remark`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id,:remark)", [':name'=>$name, ':type'=>$ext, ':size'=>$size, ':hash'=>$hash, ':ip'=>$clientip, ':pwd'=>$pwd, ':uid'=>$uploadUid, ':folder_id'=>$folder_id, ':remark'=>$remark]);
-			if(!$sds)exit('{"code":-1,"msg":"上传失败'.$DB->error().'","error":"database"}');
-			$file_id = $DB->lastInsertId();
-		}
+		$file_id = createFileReference($name, $ext, $size, $hash, $clientip, $pwd, $uploadUid, $folder_id, $remark);
 		if(!empty($_SESSION['upload']['invite_token'])){
 			completeUploadInvite($_SESSION['upload']['invite_token']);
+		}else{
+			$_SESSION['fileids'][] = $file_id;
 		}
 		unset($_SESSION['upload']);
 		$result = ['code'=>1, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$file_id];
@@ -610,7 +637,7 @@ case 'upload_part':
 	if($conf['videoreview']==1 && in_array($ext,$type_video)){
 		$DB->exec("UPDATE `pre_file` SET `block`=2 WHERE `id`='{$id}' LIMIT 1");
 	}
-	
+
 	if(!empty($_SESSION['upload']['invite_token'])){
 		completeUploadInvite($_SESSION['upload']['invite_token']);
 	}else{
@@ -643,7 +670,7 @@ case 'complete_upload':
 		$usedStr = formatStorageSize($used);
 		exit('{"code":-1,"msg":"您的存储空间不足（已用'.$usedStr.' / 总共'.$limitStr.'），无法完成上传","error":"storage_limit"}');
 	}
-	
+
 	if(!$stor->exists($hash)){
 		exit('{"code":-1,"msg":"文件上传失败","error":"stor","errmsg":"'.$stor->errmsg().'"}');
 	}
@@ -674,14 +701,11 @@ case 'complete_upload':
 
 	$row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
 	if($row){
-		$file_id = $row['id'];
-		if(!empty($_SESSION['upload']['invite_token'])){
-			$sds = $DB->exec("INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`,`remark`) values (:name,:type,:size,:hash,NOW(),:ip,:pwd,:uid,:folder_id,:remark)", [':name'=>$name, ':type'=>$ext, ':size'=>$size, ':hash'=>$hash, ':ip'=>$clientip, ':pwd'=>$pwd, ':uid'=>$uploadUid, ':folder_id'=>$folder_id, ':remark'=>$remark]);
-			if(!$sds)exit('{"code":-1,"msg":"上传失败'.$DB->error().'","error":"database"}');
-			$file_id = $DB->lastInsertId();
-		}
+		$file_id = createFileReference($name, $ext, $size, $hash, $clientip, $pwd, $uploadUid, $folder_id, $remark);
 		if(!empty($_SESSION['upload']['invite_token'])){
 			completeUploadInvite($_SESSION['upload']['invite_token']);
+		}else{
+			$_SESSION['fileids'][] = $file_id;
 		}
 		unset($_SESSION['upload']);
 		$result = ['code'=>1, 'msg'=>'本站已存在该文件', 'exists'=>1, 'hash'=>$hash, 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$file_id];
@@ -702,7 +726,7 @@ case 'complete_upload':
 	if($conf['videoreview']==1 && in_array($ext,$type_video)){
 		$DB->exec("UPDATE `pre_file` SET `block`=2 WHERE `id`='{$id}' LIMIT 1");
 	}
-	
+
 	if(!empty($_SESSION['upload']['invite_token'])){
 		completeUploadInvite($_SESSION['upload']['invite_token']);
 	}else{
@@ -714,11 +738,18 @@ case 'complete_upload':
 break;
 
 case 'deleteFile':
-	$hash = isset($_POST['hash'])?trim($_POST['hash']):exit('{"code":-1,"msg":"no hash"}');
+	$file_id = isset($_POST['file_id'])?intval($_POST['file_id']):0;
+	$hash = isset($_POST['hash'])?trim($_POST['hash']):'';
 	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
-	if(!preg_match('/^[0-9a-z]{32}$/i', $hash))exit('{"code":-1,"msg":"hash error"}');
-	$row = $DB->getRow("SELECT * FROM `pre_file` WHERE `hash`=:hash", [':hash'=>$hash]);
+	if($file_id > 0){
+		$row = $DB->getRow("SELECT * FROM `pre_file` WHERE `id`=:id", [':id'=>$file_id]);
+	}else{
+		if(empty($hash))exit('{"code":-1,"msg":"no hash"}');
+		if(!preg_match('/^[0-9a-z]{32}$/i', $hash))exit('{"code":-1,"msg":"hash error"}');
+		$row = getDeletableFileByHash($hash);
+	}
 	if(!$row)exit('{"code":-1,"msg":"文件不存在"}');
+	$hash = $row['hash'];
 	if($islogin2 && $row['uid']!=$uid || !$islogin2 && (!isset($_SESSION['fileids']) || !in_array($row['id'], $_SESSION['fileids'])))exit('{"code":-1,"msg":"无权限"}');
 	if($row['block']==1)exit('{"code":-1,"msg":"文件已被冻结，无法删除"}');
 	if(!$islogin2 && strtotime($row['addtime'])<strtotime("-7 days"))exit('{"code":-1,"msg":"无法删除7天前的文件"}');
@@ -808,10 +839,16 @@ break;
 
 case 'moveFile':
 	if(!$islogin2)exit('{"code":-1,"msg":"请先登录"}');
+	if(!$_POST['csrf_token'] || $_POST['csrf_token']!=$_SESSION['csrf_token'])exit('{"code":-1,"msg":"CSRF TOKEN ERROR"}');
+	$file_id = isset($_POST['file_id'])?intval($_POST['file_id']):0;
 	$hash = isset($_POST['hash'])?trim($_POST['hash']):'';
 	$folder_id = isset($_POST['folder_id'])?intval($_POST['folder_id']):0;
-	if(empty($hash))exit('{"code":-1,"msg":"参数错误"}');
-	$row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash AND uid=:uid", [':hash'=>$hash, ':uid'=>$uid]);
+	if($file_id > 0){
+		$row = $DB->getRow("SELECT * FROM pre_file WHERE id=:id AND uid=:uid", [':id'=>$file_id, ':uid'=>$uid]);
+	}else{
+		if(empty($hash))exit('{"code":-1,"msg":"参数错误"}');
+		$row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash AND uid=:uid", [':hash'=>$hash, ':uid'=>$uid]);
+	}
 	if(!$row)exit('{"code":-1,"msg":"文件不存在或无权限"}');
 	if($folder_id>0){
 		$frow = $DB->getRow("SELECT * FROM pre_folder WHERE id=:id AND uid=:uid", [':id'=>$folder_id, ':uid'=>$uid]);

@@ -88,7 +88,7 @@ class UploadInviteTest
         $this->assert(strpos($ajax, '$inviteUploadMode = $inviteContext ? true : false;') !== false, '应显式标识邀请上传模式');
         $this->assert(strpos($ajax, '目标目录已存在同名文件，请更换文件名后再上传') !== false, '邀请上传遇到同名不同内容应拒绝而不是覆盖');
         $this->assert(strpos($ajax, 'revalidateUploadInviteSession') !== false, '分片/完成阶段应重新复核邀请授权');
-        $this->assert(strpos($ajax, "if(!empty(\$_SESSION['upload']['invite_token'])){") !== false, '已存在 hash 仅应在邀请上传场景新增目录引用');
+        $this->assert(strpos($ajax, 'function createFileReference') !== false, '已存在 hash 应通过统一逻辑新增目录引用');
         echo "\n";
     }
 

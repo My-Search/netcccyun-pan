@@ -25,6 +25,9 @@ class FileManagerTest
         $this->testRefererHostAllowsSameOriginOriginHeader();
         $this->testMineViewFolderUrlPersistence();
         $this->testMineViewRefreshesAfterEachUploadCompletion();
+        $this->testMineViewUsesInlineListLoading();
+        $this->testSharedFileReferenceDeleteAndMoveUseFileId();
+        $this->testExistingHashUploadCreatesNewReference();
 
         echo "\n=== 测试结果 ===\n";
         echo "通过: {$this->passed}\n";
@@ -213,6 +216,60 @@ class FileManagerTest
         $this->assert(strpos($view, 'loadFolder(currentFolderId, {updateUrl:false})') !== false, '上传完成刷新应保持当前URL目录状态');
         $this->assert(substr_count($view, 'refreshCurrentUploadFolder();') >= 3, '秒传、普通上传完成、服务端完成响应均应触发刷新');
         $this->assert(strpos($view, '文件上传完成，请刷新页面查看最新文件') === false, '上传完成后不应再要求用户手动刷新查看最新文件');
+        echo "\n";
+    }
+
+
+    private function testMineViewUsesInlineListLoading()
+    {
+        echo "--- 我的文件列表轻量加载提示 ---
+";
+        $view = file_get_contents(__DIR__ . '/../includes/mine_view.php');
+
+        $this->assert(strpos($view, 'function showFolderLoading()') !== false, '文件列表应使用局部加载提示函数');
+        $this->assert(strpos($view, 'mine-inline-loading') !== false, '加载提示应显示在文件列表区域内');
+        $this->assert(strpos($view, 'layer.load(1, {shade:[0.1') === false, '列表刷新不应再弹出全局遮罩转圈');
+        $this->assert(strpos($view, 'complete: function()') !== false, '列表请求应有完成回调清理请求状态');
+        $this->assert(strpos($view, 'timeout: 15000') !== false, '列表请求应设置超时避免转圈长期停留');
+        $this->assert(strpos($view, 'uploadRefreshTimer') !== false, '上传完成后的列表刷新应合并防抖');
+        echo "
+";
+    }
+
+    private function testSharedFileReferenceDeleteAndMoveUseFileId()
+    {
+        echo "--- 共享物理文件引用删除/移动定位 ---\n";
+        $ajax = file_get_contents(__DIR__ . '/../ajax.php');
+        $view = file_get_contents(__DIR__ . '/../includes/mine_view.php');
+
+        $this->assert(strpos($ajax, "\$file_id = isset(\$_POST['file_id'])?intval(\$_POST['file_id']):0;") !== false, '删除/移动接口应接收 file_id 作为逻辑引用ID');
+        $this->assert(strpos($ajax, 'SELECT * FROM `pre_file` WHERE `id`=:id') !== false, '删除文件应优先按 pre_file.id 精确定位引用');
+        $this->assert(strpos($ajax, 'SELECT * FROM pre_file WHERE id=:id AND uid=:uid') !== false, '移动文件应优先按 pre_file.id 精确定位引用');
+        $this->assert(strpos($ajax, 'SELECT count(*) FROM pre_file WHERE hash=:hash') !== false, '删除引用后仍应按 hash 引用计数保护物理文件');
+        $this->assert(strpos($ajax, 'function getDeletableFileByHash') !== false, '兼容 hash 删除时应先消除多引用歧义');
+        $this->assert(strpos($ajax, '存在多个同文件引用，请刷新列表后重试') !== false, 'hash 删除遇到多个可删引用时应拒绝而不是随机删除');
+        $this->assert(strpos($ajax, "case 'moveFile':\n\tif(!\$islogin2)exit") !== false, '应保留移动文件登录校验');
+        $this->assert(strpos($ajax, "CSRF TOKEN ERROR") !== false, '移动文件等状态变更应有 CSRF 校验');
+        $this->assert(strpos($view, 'data-file-id="'+f.id+'"') !== false, '文件列表DOM应携带 file_id');
+        $this->assert(strpos($view, "{file_id:fileId, csrf_token:csrf}") !== false, '前端删除应提交 file_id 而不是只提交 hash');
+        $this->assert(strpos($view, "{file_id:fileId, folder_id:folder_id, csrf_token:'<?php echo $csrf_token; ?>'}") !== false, '前端移动应提交 file_id 与 CSRF token');
+        $filePage = file_get_contents(__DIR__ . '/../file.php');
+        $this->assert(strpos($filePage, 'id="file_id"') !== false, '文件详情页管理删除应携带 file_id');
+        $this->assert(strpos($filePage, 'data : {file_id:file_id, csrf_token:csrf_token}') !== false, '文件详情页删除应提交 file_id 而不是 hash');
+        echo "\n";
+    }
+
+    private function testExistingHashUploadCreatesNewReference()
+    {
+        echo "--- 已存在 hash 上传新增目录引用 ---\n";
+        $ajax = file_get_contents(__DIR__ . '/../ajax.php');
+
+        $this->assert(strpos($ajax, 'function createFileReference') !== false, '应提供统一的逻辑引用创建方法');
+        $this->assert(substr_count($ajax, 'createFileReference($name, $ext, $size, $hash, $clientip, $pwd, $uploadUid, $folder_id, $remark)') >= 3, '秒传、分片完成、第三方完成都应为当前目录创建新引用');
+        $this->assert(strpos($ajax, "\$_SESSION['fileids'][] = \$file_id;") !== false, '未登录秒传新增引用后应记录到会话权限列表');
+        $api = file_get_contents(__DIR__ . '/../api.php');
+        $this->assert(strpos($api, "INSERT INTO `pre_file` (`name`,`type`,`size`,`hash`,`addtime`,`ip`,`pwd`,`uid`,`folder_id`)") !== false, 'API 已存在 hash 上传也应新增逻辑引用');
+        $this->assert(strpos($ajax, "\$file_id = \$row['id'];") === false, '已存在 hash 不应直接复用其他位置的旧引用ID');
         echo "\n";
     }
 }
