@@ -1,0 +1,122 @@
+.mine-toolbar { margin-bottom: 15px; }
+.mine-toolbar-breadcrumb-row { margin-bottom: 10px; }
+.mine-breadcrumb { background: #f5f5f5; padding: 8px 15px; border-radius: 4px; display: block; width: 100%; }
+.mine-breadcrumb a { color: #337ab7; cursor: pointer; }
+.mine-toolbar-actions-row { float: none !important; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; line-height: normal; }
+.mine-search { flex: 0 1 300px; max-width: 100%; height: 32px; display: inline-flex !important; align-items: stretch; align-self: center; margin: 0; vertical-align: middle; }
+.mine-search .form-control { flex: 1 1 auto; width: auto; min-width: 0; height: 32px; line-height: 20px; padding-top: 5px; padding-bottom: 5px; float: none; }
+.mine-search .input-group-btn { flex: 0 0 auto; display: inline-flex; align-items: stretch; width: auto; font-size: 0; }
+.mine-search .input-group-btn .btn { width: 34px; height: 32px; line-height: 20px; padding: 5px 0; display: inline-flex; align-items: center; justify-content: center; }
+.mine-toolbar-actions > .btn { height: 32px; line-height: 20px; padding-top: 5px; padding-bottom: 5px; display: inline-flex; align-items: center; justify-content: center; align-self: center; margin: 0; vertical-align: middle; white-space: nowrap; }
+.mine-toolbar-actions > .btn .fa { margin-right: 4px; }
+@media (max-width: 767px) {
+	.mine-toolbar-actions-row { justify-content: center; gap: 10px; }
+	.mine-search { flex: 0 1 calc(100% - 20px); width: calc(100% - 20px); max-width: 420px; margin-left: auto; margin-right: auto; }
+	.mine-toolbar-actions > .btn { flex: 1 1 calc(50% - 5px); min-width: 0; max-width: 220px; }
+}
+.item-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.item-card { width: 120px; text-align: center; padding: 10px; border-radius: 4px; cursor: pointer; position: relative; user-select: none; -webkit-touch-callout: none; -webkit-user-select: none; }
+.item-card:hover { background: #f0f0f0; }
+.item-card .icon-wrap { font-size: 48px; height: 56px; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.item-card .item-name { margin-top: 5px; font-size: 12px; word-break: break-all; line-height: 1.3; max-height: 32px; overflow: hidden; pointer-events: none; }
+.item-card .item-remark { margin-top: 3px; font-size: 11px; color: #8a6d3b; line-height: 1.25; max-height: 28px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; pointer-events: none; }
+.item-card.drag-over { background: #d9edf7 !important; outline: 2px dashed #337ab7; }
+.item-card.file-item { cursor: grab; }
+.item-card.file-item:active { cursor: grabbing; }
+.item-card.folder-item { cursor: grab; }
+.item-card.folder-item:active { cursor: grabbing; }
+.item-card .fa-folder { color: #f0ad4e; }
+.item-card .fa-file-image-o { color: #5cb85c; }
+.item-card .fa-file-audio-o { color: #5bc0de; }
+.item-card .fa-file-video-o { color: #d9534f; }
+.item-card .fa-file-archive-o { color: #f0ad4e; }
+.item-card .fa-file-text-o { color: #777; }
+.item-card .fa-file-o { color: #999; }
+.context-menu { position: absolute; z-index: 9999; background: #fff; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: none; min-width: 120px; }
+.context-menu a { display: block; padding: 8px 15px; color: #333; text-decoration: none; }
+.context-menu a:hover { background: #f5f5f5; }
+/* 移动端底部菜单 */
+.mobile-menu-list { padding: 10px 0; }
+.mobile-menu-item { padding: 14px 20px; font-size: 15px; color: #333; text-align: center; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
+.mobile-menu-item:last-of-type { border-bottom: none; }
+.mobile-menu-item:active { background: #f5f5f5; }
+.mobile-menu-danger { color: #d9534f !important; }
+.mobile-menu-cancel { padding: 14px 20px; font-size: 15px; color: #999; text-align: center; cursor: pointer; margin-top: 8px; border-top: 1px solid #f0f0f0; }
+.mobile-menu-cancel:active { background: #f5f5f5; }
+/* 触摸拖拽幽灵 */
+.drag-ghost { position: fixed; z-index: 10000; pointer-events: none; opacity: 0.85; box-shadow: 0 4px 15px rgba(0,0,0,0.2); border-radius: 8px; background: #fff; transform: scale(1.05); }
+.drag-ghost .icon-wrap { font-size: 40px; height: 48px; }
+.drag-ghost .item-name { font-size: 11px; }
+.upload-dropzone { border: 2px dashed #ccc; border-radius: 8px; padding: 40px; text-align: center; color: #999; transition: all 0.3s; }
+.upload-dropzone.dragover { border-color: #337ab7; background: #f0f8ff; color: #337ab7; }
+.upload-queue { max-height: 300px; overflow-y: auto; margin-top: 15px; }
+.upload-queue-item { display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #eee; transition: background 0.3s; }
+.upload-queue-item .progress { flex: 1; margin: 0 10px; height: 8px; margin-bottom: 0; }
+.upload-queue-item .status { width: 60px; text-align: right; font-size: 12px; }
+.upload-invite-form { padding: 15px; }
+.upload-invite-field { margin-top: 12px; }
+.upload-invite-field label { display: block; margin-bottom: 6px; font-weight: 400; }
+.upload-invite-location { margin-bottom: 0; }
+.upload-invite-tips { margin-top: 10px; color: #999; font-size: 12px; word-break: break-word; overflow-wrap: anywhere; }
+.upload-invite-result { padding: 15px; text-align: center; }
+.upload-invite-url-group { margin-bottom: 12px; }
+.upload-invite-url-group .form-control { overflow: hidden; text-overflow: ellipsis; }
+.upload-invite-remark { color: #8a6d3b; font-size: 12px; word-break: break-all; overflow-wrap: anywhere; }
+
+/* 我的文件上传弹框响应式适配 */
+.upload-modal-body { padding: 15px; box-sizing: border-box; }
+.upload-queue-name { width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 767px) {
+	.layui-layer.mine-upload-layer { left: 10px !important; right: auto !important; top: 5vh !important; width: calc(100vw - 20px) !important; max-width: calc(100vw - 20px); height: auto !important; max-height: 90vh; box-sizing: border-box; display: flex; flex-direction: column; }
+	.layui-layer.mine-upload-layer .layui-layer-title { flex: 0 0 auto; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.layui-layer.mine-upload-layer .layui-layer-content { flex: 1 1 auto; height: auto !important; max-height: calc(90vh - 43px); overflow-x: hidden; overflow-y: auto; box-sizing: border-box; }
+	.layui-layer.mine-upload-layer .upload-modal-body { width: 100%; max-width: 100%; min-width: 0; padding: 10px; overflow-wrap: anywhere; }
+	.layui-layer.mine-upload-layer .upload-dropzone { padding: 16px 10px; box-sizing: border-box; overflow-wrap: anywhere; }
+	.layui-layer.mine-upload-layer .upload-dropzone p { max-width: 100%; margin: 6px 0; overflow-wrap: anywhere; }
+	.layui-layer.mine-upload-layer .upload-dropzone .fa-cloud-upload { font-size: 28px !important; }
+	.layui-layer.mine-upload-layer .upload-dropzone .btn { margin-bottom: 6px; white-space: normal; }
+	.layui-layer.mine-upload-layer .upload-queue { max-height: calc(90vh - 210px); overflow-x: hidden; }
+	.layui-layer.mine-upload-layer .upload-queue-item { flex-wrap: wrap; align-items: flex-start; }
+	.layui-layer.mine-upload-layer .upload-queue-name { flex: 1 1 100%; width: auto; max-width: 100%; margin-bottom: 6px; white-space: normal; word-break: break-all; overflow-wrap: anywhere; }
+	.layui-layer.mine-upload-layer .upload-queue-item .progress { flex: 1 1 auto; min-width: 120px; margin-left: 0; }
+	.layui-layer.mine-upload-layer .upload-queue-item .status { width: auto; max-width: 100%; text-align: right; word-break: break-word; overflow-wrap: anywhere; }
+
+	.layui-layer.upload-invite-layer { left: 10px !important; right: auto !important; top: 5vh !important; width: calc(100vw - 20px) !important; max-width: calc(100vw - 20px); max-height: 90vh; box-sizing: border-box; display: flex; flex-direction: column; }
+	.layui-layer.upload-invite-layer .layui-layer-title { flex: 0 0 auto; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.layui-layer.upload-invite-layer .layui-layer-content { flex: 1 1 auto; height: auto !important; max-height: calc(90vh - 110px); overflow-x: hidden; overflow-y: auto; box-sizing: border-box; }
+	.layui-layer.upload-invite-layer .layui-layer-btn { flex: 0 0 auto; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-left: 10px; padding-right: 10px; box-sizing: border-box; }
+	.layui-layer.upload-invite-layer .layui-layer-btn a { margin: 0; }
+	.upload-invite-form, .upload-invite-result { width: 100%; max-width: 100%; min-width: 0; padding: 12px; box-sizing: border-box; overflow-wrap: anywhere; }
+	.upload-invite-form p, .upload-invite-result p, .upload-invite-field label { max-width: 100%; word-break: break-word; overflow-wrap: anywhere; }
+	.upload-invite-form .form-control, .upload-invite-result .form-control { width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
+	.upload-invite-form textarea.form-control { resize: vertical; }
+	.upload-invite-url-group { display: flex; width: 100%; max-width: 100%; min-width: 0; align-items: stretch; }
+	.upload-invite-url-group .form-control { flex: 1 1 auto; min-width: 0; }
+	.upload-invite-url-group .input-group-btn { flex: 0 0 auto; width: auto; }
+	.upload-invite-url-group .input-group-btn .btn { white-space: nowrap; }
+}
+@media (max-width: 480px) {
+	.upload-invite-url-group { display: block; }
+	.upload-invite-url-group .form-control { display: block; margin-bottom: 8px; }
+	.upload-invite-url-group .input-group-btn { display: block; width: 100%; }
+	.upload-invite-url-group .input-group-btn .btn { width: 100%; }
+}
+/* 移动到 - 树形选择器样式 */
+.move-tree { max-height: 320px; overflow: auto; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #fafafa; }
+.move-tree-item { padding: 0; cursor: pointer; border-radius: 3px; transition: background 0.2s; white-space: nowrap; }
+.move-tree-item:hover { background: #e8e8e8; }
+.move-tree-item.selected { background: #337ab7; color: #fff; }
+.move-tree-item.selected .move-tree-icon { color: #fff; }
+.move-tree-item.selected .move-tree-toggle { color: #fff; }
+.move-tree-node { display: flex; align-items: center; padding: 6px 8px; }
+.move-tree-toggle { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-size: 10px; color: #666; margin-right: 4px; flex-shrink: 0; }
+.move-tree-toggle:hover { color: #333; }
+.move-tree-toggle.empty { visibility: hidden; }
+.move-tree-children { padding-left: 20px; display: none; }
+.move-tree-children.expanded { display: block; }
+.move-tree-icon { margin-right: 6px; color: #f0ad4e; flex-shrink: 0; }
+.move-tree-node span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.move-tree-quick-btns { margin-bottom: 15px; }
+.move-tree-quick-btns .btn { margin-right: 8px; margin-bottom: 8px; }
+.move-tree-current { padding: 10px; background: #f5f5f5; border-radius: 4px; margin-bottom: 15px; font-weight: 500; }
+.move-tree-current .name { color: #337ab7; }

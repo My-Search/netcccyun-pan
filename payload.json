@@ -1,0 +1,26 @@
+[
+  {
+    "targetNodeId": "a52fc72039974d3dbc00b77826e6b438",
+    "output": {
+      "summary": "修复搜索功能：后端 listMine 接口已完整支持 kw 参数，按 name 和 remark 两字段模糊匹配，只需前端传递 kw 参数，后端无代码变更。(1) 后端搜索已就绪：参数接收与长度截断（100 字符）、通配符转义防护、子目录递归搜索、name 和 remark 双字段匹配、与 type 组合过滤。接口路径 GET /ajax.php?act=listMine&folder_id={folder_id}&kw={kw}&type={type}，响应含 code/folders/files/path/folder_id/keyword/version。权限与异常由 requireUserLogin 和目录归属校验保证。后端涉及的代码不变更，仅确认：includes/ajax.php(1078-1140 case listMine) 和 includes/ajax.php(485-492 getSubFolderIds)。测试建议：中文搜索、超长截断、特殊字符含空格、组合 type+kw。已知问题：前端本地二次过滤 filterMineItemsByKeyword 仅按 name 过滤，与后端（name+remark）不一致，建议前端对齐。",
+      "backendChanges": "无新增/修改/删除文件。当前接口已完整支持搜索：1. 参数接收与截断：$_GET['kw']，max 100 字符；2. SQL 注入防护：对 LIKE 通配符 % 和 _ 划线转义；3. 搜索范围：调用 getSubFolderIds() 递归取当前目录及所有子目录 ID；4. 双字段模糊匹配：name 和 remark 两字段 LIKE 匹配；5. 组合过滤：kw 与 type 参数可同时组合使用；6. 响应携带 keyword 字段。",
+      "changedFiles": "无后端文件变更。涉及代码位置：includes/ajax.php（1078-1140 行 case listMine），includes/ajax.php（485-492 行 getSubFolderIds）。",
+      "apiContracts": "路径：GET /ajax.php?act=listMine\n参数：folder_id(int, 默认 0)、kw(string, 可选, 最大 100)、type(string, 可选, image|video|audio|document|other)\n响应：{\"code\":0,\"folders\":[],\"files\":[],\"path\":[],\"folder_id\":0,\"keyword\":\"\",\"version\":\"\"}\n错误码：code=0 成功；未登录时由 requireUserLogin 统一拦截返回。幂等：GET 天然幂等。",
+      "keyLogic": "权限校验：未登录由 requireUserLogin 拦截，已登录用 session 获取 uid。目录归属：folder_id>0 时确认归属。搜索词处理：trim 去白，max 100 字符，通配符转义。子目录递归：获取搜索范围目录集合。文件查询：子目录集合内按 name+remark LIKE 匹配。文件夹查询：子目录集合内按 name LIKE 匹配。type 过滤与搜索条件同用 WHERE 子句。",
+      "testNotes": "已确认后端实现完备，无需测试后端本身。建议验证：中文字符；空字符串；超过 100 字符自动截断；含空格或组合特殊字符；type 与 kw 组合同时生效。",
+      "knownIssues": "前端本地二次过滤（filterMineItemsByKeyword）只在 name 字段匹配，而后端同时匹配 name 和 remark。可能导致后端通过 remark 匹配到的文件被前端过滤掉为空列表。建议前端统一。",
+      "nextInput": "请审查确认：1）后端搜索接口是否完整满足前端联调需要；2）已指出前端二次过滤与后端范围不一致问题，是否需前端调整。"
+    }
+  },
+  {
+    "targetNodeId": "8eecfc4add374d5f8274929123e11dd6",
+    "output": {
+      "summary": "前端开发联调说明：后端接口已就绪，前端仍需确认 kw 参数传递的一致性和本地过滤对齐。",
+      "apiChanges": "接口：GET /ajax.php?act=listMine&kw={kw}&type={type}&folder_id={folder_id}\n当前前端已有变更：loadFolder() 已追加 kw 参数拼接；updateFolderUrl() 已支持 kw 读写 URL；applyMineSearch()/clearMineSearch() 已改为调用 loadFolder()。",
+      "fieldChanges": "响应 keyword 字段返回实际搜索词。version 用于文件夹监控，搜索模式下正常返回。",
+      "integrationNotes": "注意事项：前端本地 filterMineItemsByKeyword() 仅在 name 字段匹配，而后端同时在 name 和 remark 匹配，存在不一致。建议 renderCurrentItems() 中移除/调整前端二次过滤以与后端行为对齐。",
+      "mockData": "请求：GET /ajax.php?act=listMine&folder_id=0&kw=test\n响应：{\"code\":0,\"folders\":[{\"id\":1,\"name\":\"test_folder\"}],\"files\":[{\"id\":1,\"name\":\"test.txt\",\"type\":\"txt\",\"size\":1024,\"hash\":\"\",\"count\":0,\"remark\":\"test\"}],\"path\":[],\"folder_id\":0,\"keyword\":\"test\"}",
+      "nextInput": "核心联调：1）确认前端 loadFolder 中已添加 kw 参数传递。2）处理 filterMineItemsByKeyword 与后端搜索范围一致性问题。3）搜索无结果提示已为“没有找到匹配的文件或文件夹”。"
+    }
+  }
+]

@@ -571,6 +571,9 @@ case 'upload_part':
 	}
 	if(!preg_match('/^[0-9a-z]{32}$/i', $hash))exit('{"code":-1,"msg":"hash error"}');
 	$chunks = intval($_SESSION['upload']['chunks']);
+	if($chunk < 1 || $chunk > $chunks){
+		exit('{"code":-1,"msg":"分块序号错误","error":"chunk_range"}');
+	}
 	$ext = $_SESSION['upload']['ext'];
 	if($chunks > 1){
 		$tempFile = sys_get_temp_dir() . '/' . $hash. '.part'.$chunk;

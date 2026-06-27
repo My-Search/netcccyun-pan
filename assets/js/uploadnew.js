@@ -16,6 +16,18 @@ new Vue({
         filename: '',
         uploadspeed: '',
         speedHistory: [],
+        uploadStatus: 'idle',
+        currentFile: null,
+        currentXhr: null,
+        isThirdUpload: false,
+        uploadMeta: {
+            chunkSize: 0,
+            chunks: 0,
+            currentChunk: 1,
+            lastResult: null,
+            thirdUrl: '',
+            thirdPost: null
+        },
         input: {
             csrf_token:'',
             ispwd: false,
@@ -82,6 +94,8 @@ new Vue({
             this.alert.msg = msg;
             this.showtype = 2;
             this.isBlock=false;
+            this.uploadStatus = 'idle';
+            this.currentXhr = null;
             $("#file").val('');
         },
         clickUpload(){
@@ -95,97 +109,180 @@ new Vue({
             await this.uploadFile(fileObj)
         },
         async uploadFile(file){
-            var that = this;
             if(this.isBlock) return;
+            if(!this.beforeUpload(file)) return;
+            this.initUploadState(file);
+
+            let loading = layer.msg('正在准备上传...', {icon: 16,shade: 0.1,time: 0});
+            try{
+                this.input.hash = await this.getFileHash(file);
+
+                // 获取用户容量信息并校验
+                var storageCheck = await this.checkStorage(file.size);
+                if(!storageCheck.ok){
+                    layer.close(loading);
+                    layer.alert(storageCheck.msg, {icon:2});
+                    this.resetUploadBlock();
+                    return;
+                }
+
+                var result = await this.preUpload();
+                layer.close(loading);
+                this.filename = file.name + ' （'+this.size_format(file.size)+'）';
+                this.isBlock = true;
+
+                if(result.code == 1){
+                    this.progress = 100;
+                    this.uploadSuccess(result.hash);
+                    return;
+                }
+
+                await this.startUpload(result);
+            }catch(e){
+                layer.close(loading);
+                this.handleUploadError(e);
+            }
+        },
+        beforeUpload(file){
             if(typeof forbid!=='undefined' && forbid){
                 layer.alert('登录后才能上传文件！',{icon:0},function(){window.location.href='./login.php'});
-                return;
+                return false;
             }
             if(upload_max_filesize != '' && parseInt(upload_max_filesize) > 0){
                 if(file.size > parseInt(upload_max_filesize) * 1024 * 1024){
-                    layer.alert('上传文件大小限制'+upload_max_filesize+'MB！');return;
+                    layer.alert('上传文件大小限制'+upload_max_filesize+'MB！');return false;
                 }
             }
+            return true;
+        },
+        initUploadState(file){
             this.input.name = file.name;
             this.input.size = file.size;
             this.progress = 0;
             this.loaded_size = 0;
+            this.progress_tip = '';
+            this.uploadspeed = '';
             this.speedHistory = [];
             this.showtype = 1;
             this.beginTime = new Date().getTime();
-
-            let loading = layer.msg('正在准备上传...', {icon: 16,shade: 0.1,time: 0});
-            await this.getFileHash(file).then(res =>{
-                that.input.hash = res;
-            })
-
-            // 获取用户容量信息并校验
-            var storageCheck = await this.checkStorage(file.size);
-            if(!storageCheck.ok){
-                layer.close(loading);
-                layer.alert(storageCheck.msg, {icon:2});
-                return;
-            }
-
-            var result = {}
-            await this.preUpload().then(res =>{
-                result = res
-            }, res => {
-                layer.close(loading);
-                that.show_msg(res, 'danger');
-                throw Error();
-            })
-            layer.close(loading);
-
-            this.filename = file.name + ' （'+this.size_format(file.size)+'）';
-            this.isBlock = true;
-            if(result.code == 1){
-                this.progress = 100;
-                this.uploadSuccess(result.hash);
-                return;
-            }
-
+            this.currentFile = file;
+            this.currentXhr = null;
+            this.isThirdUpload = false;
+            this.uploadStatus = 'preparing';
+            this.uploadMeta = {
+                chunkSize: 0,
+                chunks: 0,
+                currentChunk: 1,
+                lastResult: null,
+                thirdUrl: '',
+                thirdPost: null
+            };
+        },
+        resetUploadBlock(){
+            this.isBlock = false;
+            this.uploadStatus = 'idle';
+            this.currentXhr = null;
+            $("#file").val('');
+        },
+        async startUpload(result){
+            this.uploadStatus = 'uploading';
             if(result.third){
-                await this.uploadThird(result.url, result.post, file).then(res =>{
-                }, res => {
-                    that.show_msg(res, 'danger');
-                    throw Error();
-                });
-
-                await this.completeUpload().then(res =>{
-                    result = res
-                }, res => {
-                    that.show_msg(res, 'danger');
-                    throw Error();
-                });
-
+                this.isThirdUpload = true;
+                this.uploadMeta.thirdUrl = result.url;
+                this.uploadMeta.thirdPost = result.post;
+                await this.startThirdUpload(result.url, result.post);
+                return;
+            }
+            this.isThirdUpload = false;
+            this.uploadMeta.chunkSize = result.chunksize;
+            this.uploadMeta.chunks = result.chunks;
+            this.uploadMeta.currentChunk = 1;
+            await this.startPartUpload();
+        },
+        async startThirdUpload(url, postdata){
+            await this.uploadThird(url, postdata, this.currentFile);
+            if(this.isPaused()) return;
+            var result = await this.completeUpload();
+            this.uploadSuccess(result.hash);
+        },
+        async startPartUpload(){
+            var result = this.uploadMeta.lastResult || {};
+            var chunks = this.uploadMeta.chunks;
+            if(chunks == 1){
+                result = await this.uploadPart(this.currentFile, 1);
+                this.uploadMeta.lastResult = result;
+                this.uploadMeta.currentChunk = 2;
+                if(this.isPaused()) return;
             }else{
-                var chunkSize = result.chunksize;
-                var chunks = result.chunks;
-                if(chunks == 1){
-                    await this.uploadPart(file, 1).then(res =>{
-                        result = res
-                    }, res => {
-                        that.show_msg(res, 'danger');
-                        throw Error();
-                    });
-                }else{
-                    var blobSlice = File.prototype.mozSlice || File.prototype.webkitSlice || File.prototype.slice;
-                    for (chunk = 1; chunk <= chunks; chunk++) {
-                        var start = (chunk - 1) * chunkSize;
-                        var end = start + chunkSize > file.size ? file.size : start + chunkSize;
-                        var blob = blobSlice.call(file, start, end);
-                        await this.uploadPart(blob, chunk).then(res =>{
-                            that.loaded_size = end
-                            result = res
-                        }, res => {
-                            that.show_msg(res, 'danger');
-                            throw Error();
-                        });
-                    }
-                }
+                result = await this.uploadChunksFromCurrent();
+                if(this.isPaused()) return;
             }
             this.uploadSuccess(result.hash);
+        },
+        async uploadChunksFromCurrent(){
+            var blobSlice = File.prototype.mozSlice || File.prototype.webkitSlice || File.prototype.slice;
+            var chunkSize = this.uploadMeta.chunkSize;
+            var chunks = this.uploadMeta.chunks;
+            var result = this.uploadMeta.lastResult || {};
+            for (var chunk = this.uploadMeta.currentChunk; chunk <= chunks; chunk++) {
+                if(this.isPaused()) break;
+                var start = (chunk - 1) * chunkSize;
+                var end = start + chunkSize > this.currentFile.size ? this.currentFile.size : start + chunkSize;
+                var blob = blobSlice.call(this.currentFile, start, end);
+                result = await this.uploadPart(blob, chunk);
+                this.loaded_size = end;
+                this.uploadMeta.lastResult = result;
+                this.uploadMeta.currentChunk = chunk + 1;
+                if(this.isPaused()) break;
+            }
+            return result;
+        },
+        isPaused(){
+            return this.uploadStatus == 'paused';
+        },
+        canPause(){
+            return this.showtype == 1 && this.uploadStatus == 'uploading' && !this.isThirdUpload;
+        },
+        canResume(){
+            return this.showtype == 1 && this.uploadStatus == 'paused' && !this.isThirdUpload;
+        },
+        pauseUpload(){
+            if(this.isThirdUpload){
+                this.resetUploadBlock();
+                layer.msg('当前存储模式不支持暂停，请重新选择文件上传');
+                return;
+            }
+            if(!this.canPause()) return;
+            this.uploadStatus = 'paused';
+            this.progress_tip = '已暂停，进度已保留';
+            this.uploadspeed = '';
+            if(this.currentXhr){
+                this.currentXhr.abort();
+            }
+        },
+        async resumeUpload(){
+            if(!this.canResume()) return;
+            if(this.isThirdUpload){
+                this.show_msg('当前存储模式不支持真正断点续传，请重新选择文件上传', 'danger');
+                return;
+            }
+            this.uploadStatus = 'uploading';
+            this.progress_tip = '';
+            this.beginTime = new Date().getTime();
+            this.speedHistory = [];
+            try{
+                if(this.uploadMeta.currentChunk > this.uploadMeta.chunks && this.uploadMeta.lastResult){
+                    this.uploadSuccess(this.uploadMeta.lastResult.hash);
+                    return;
+                }
+                await this.startPartUpload();
+            }catch(e){
+                this.handleUploadError(e);
+            }
+        },
+        handleUploadError(error){
+            if(error === '__UPLOAD_PAUSED__' || this.isPaused()) return;
+            this.show_msg(error && error.message ? error.message : error, 'danger');
         },
         async checkStorage(fileSize){ //检查用户容量是否足够
             var that = this;
@@ -292,6 +389,7 @@ new Vue({
                     contentType: false,
                     dataType : 'json',
                     success : function(data) {
+                        that.currentXhr = null;
                         if(data.code == 0 || data.code == 1){
                             resolve(data);
                         }else{
@@ -299,6 +397,11 @@ new Vue({
                         }
                     },
                     error : function(xhr){
+                        that.currentXhr = null;
+                        if(that.isPaused()){
+                            reject('__UPLOAD_PAUSED__');
+                            return;
+                        }
                         var msg = '上传失败，请稍后再试或联系站长';
                         if(xhr.status === 0) msg = '网络连接失败，请检查网络';
                         else if(xhr.status === 413) msg = '文件大小超出服务器限制';
@@ -307,6 +410,7 @@ new Vue({
                     },
                     xhr: function() {
                         var xhr = new XMLHttpRequest();
+                        that.currentXhr = xhr;
                         xhr.upload.addEventListener('progress', function (e) {
                             var totalLoaded = e.loaded + that.loaded_size;
                             var progressRate = Math.round(totalLoaded / that.input.size * 100);
@@ -327,7 +431,7 @@ new Vue({
             var that = this;
             return new Promise((resolve, reject) => {
                 var data = new FormData();
-                for(key in postdata){
+                for(var key in postdata){
                     data.append(key, postdata[key]);
                 }
                 data.append('file', file);
@@ -339,9 +443,15 @@ new Vue({
                     contentType: false,
                     dataType : 'html',
                     success : function(data) {
+                        that.currentXhr = null;
                         resolve();
                     },
                     error : function(xhr){
+                        that.currentXhr = null;
+                        if(that.isPaused()){
+                            reject('__UPLOAD_PAUSED__');
+                            return;
+                        }
                         var msg = '第三方上传失败';
                         if(xhr.status === 0) msg = '网络连接失败，请检查网络';
                         else if(xhr.status >= 500) msg = '服务器错误('+xhr.status+')';
@@ -349,6 +459,7 @@ new Vue({
                     },
                     xhr: function() {
                         var xhr = new XMLHttpRequest();
+                        that.currentXhr = xhr;
                         xhr.upload.addEventListener('progress', function (e) {
                             var totalLoaded = e.loaded + that.loaded_size;
                             var progressRate = Math.round(totalLoaded / that.input.size * 100);

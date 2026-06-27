@@ -19,6 +19,10 @@ $csrf_token = createCsrfToken();
         <div style="min-height:50px;">
             <div id="progressBar" v-if="showtype==1">
                 <div class="progress progress-striped active"><div class="progress-bar" style="width: 0%" :style="{ width: progress + '%' }">{{progress_tip}}</div></div><div class="row"><div class="col-xs-3" style="text-align:left;" id="percentage"><span v-if="progress>0">{{progress}}%</span></div><div class="col-xs-6 filename">{{filename}}</div><div class="col-xs-3" style="text-align:right;" id="uploadspeed">{{uploadspeed}}</div></div>
+                <div class="upload-actions" v-if="showtype==1">
+                    <button type="button" class="btn btn-raised btn-warning btn-sm" v-if="canPause()" @click.stop="pauseUpload"><i class="fa fa-pause"></i> 暂停</button>
+                    <button type="button" class="btn btn-raised btn-primary btn-sm" v-if="canResume()" @click.stop="resumeUpload"><i class="fa fa-play"></i> 继续</button>
+                </div>
             </div>
             <div class="alert alert-dismissible" :class="'alert-'+alert.type" v-if="showtype==2">
                 <button type="button" class="close" data-dismiss="alert">×</button>

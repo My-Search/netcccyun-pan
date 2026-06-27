@@ -237,7 +237,7 @@ echo '</div>
 	exit;
 }
 function sysmsg($msg = '未知的异常',$title = '站点提示信息') {
-	?>  
+	?>
 	<!DOCTYPE html>
 	<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-CN">
 	<head>
@@ -587,30 +587,72 @@ function get_file_ext($name){
 	return $ext;
 }
 
-function file_part_merge($hash, $chunks){
-	$tmp_dir = sys_get_temp_dir();
-	$savePathTemp = $tmp_dir . '/' . $hash. '.parttmp';
-	$tempFilePre = $tmp_dir . '/' . $hash. '.part';
+function file_part_path($hash, $suffix){
+	return sys_get_temp_dir() . '/' . $hash . $suffix;
+}
+
+function file_part_merge_error($lock, $savePathTemp, $msg, $error = 'merge'){
+	if(is_resource($lock)){
+		flock($lock, LOCK_UN);
+		fclose($lock);
+	}
 	if(file_exists($savePathTemp)){
-		unlink($savePathTemp);
+		@unlink($savePathTemp);
 	}
-	if(!$out = fopen($savePathTemp, "wb")){
-		exit('{"code":-1,"msg":"文件合并失败，临时文件夹无写入权限"}');
+	exit(json_encode(['code'=>-1, 'msg'=>$msg, 'error'=>$error]));
+}
+
+function file_part_merge($hash, $chunks){
+	$chunks = intval($chunks);
+	$savePathTemp = file_part_path($hash, '.parttmp');
+	$tempFilePre = file_part_path($hash, '.part');
+	$lockFile = file_part_path($hash, '.partlock');
+
+	if(!preg_match('/^[0-9a-z]{32}$/i', $hash) || $chunks <= 0){
+		exit('{"code":-1,"msg":"文件合并失败，参数错误","error":"merge"}');
 	}
-	for( $index = 1; $index <= $chunks; $index++ ) {
-		$chunk_file = $tempFilePre.$index;
-		if (!$fp_in = @fopen($chunk_file,"rb")){
-			fclose($out);
-			unlink($savePathTemp);
-			exit('{"code":-1,"msg":"文件合并失败，第'.$index.'分块读取失败"}');
+	$lock = @fopen($lockFile, 'c');
+	if(!$lock){
+		exit('{"code":-1,"msg":"文件合并失败，临时文件夹无写入权限","error":"merge"}');
+	}
+	if(!flock($lock, LOCK_EX | LOCK_NB)){
+		fclose($lock);
+		exit('{"code":-1,"msg":"文件正在合并，请稍后重试","error":"merge_locked"}');
+	}
+
+	if(file_exists($savePathTemp) && !@unlink($savePathTemp)){
+		file_part_merge_error($lock, $savePathTemp, '文件合并失败，临时文件无法清理');
+	}
+	for($index = 1; $index <= $chunks; $index++){
+		if(!is_file($tempFilePre.$index)){
+			file_part_merge_error($lock, $savePathTemp, '文件合并失败，第'.$index.'分块缺失', 'missing_chunk');
 		}
-		while (!feof($fp_in)) {
-			fwrite($out, fread($fp_in,1024*200));
+	}
+	if(!$out = @fopen($savePathTemp, "wb")){
+		file_part_merge_error($lock, $savePathTemp, '文件合并失败，临时文件夹无写入权限');
+	}
+	for($index = 1; $index <= $chunks; $index++){
+		$chunk_file = $tempFilePre.$index;
+		if(!$fp_in = @fopen($chunk_file, "rb")){
+			fclose($out);
+			file_part_merge_error($lock, $savePathTemp, '文件合并失败，第'.$index.'分块读取失败', 'missing_chunk');
+		}
+		while(!feof($fp_in)){
+			if(fwrite($out, fread($fp_in, 1024*200)) === false){
+				fclose($fp_in);
+				fclose($out);
+				file_part_merge_error($lock, $savePathTemp, '文件合并失败，临时文件写入失败');
+			}
 		}
 		fclose($fp_in);
-		unlink($chunk_file);
 	}
 	fclose($out);
+	for($index = 1; $index <= $chunks; $index++){
+		@unlink($tempFilePre.$index);
+	}
+	flock($lock, LOCK_UN);
+	fclose($lock);
+	@unlink($lockFile);
 	return $savePathTemp;
 }
 
@@ -650,7 +692,7 @@ function file_output($hash, $type, $size, $name, $is_view = false, $is_admin = f
 	$size = intval($size);
 	if($is_admin){
 		header("Pragma: no-cache");
-    	header("Cache-Control: no-store, no-cache, must-revalidate");
+		header("Cache-Control: no-store, no-cache, must-revalidate");
 	}else{
 		$seconds_to_cache = 3600*24*30;
 		$ts = gmdate("D, d M Y H:i:s", time() + $seconds_to_cache) . " GMT";
@@ -675,8 +717,8 @@ function file_output($hash, $type, $size, $name, $is_view = false, $is_admin = f
 			header("Content-Disposition: inline; filename={$filename}");
 		}else{
 			header("Content-Description: File Transfer");
-        	header("Content-Type: application/force-download");
-        	header("Content-Disposition: attachment; filename={$filename}");
+			header("Content-Type: application/force-download");
+			header("Content-Disposition: attachment; filename={$filename}");
 		}
 
 		$range = false;

@@ -26,6 +26,8 @@ class FileManagerTest
         $this->testMineViewFolderUrlPersistence();
         $this->testMineViewRefreshesAfterEachUploadCompletion();
         $this->testMineViewUsesInlineListLoading();
+        $this->testMineViewToolbarDesktopLayoutContract();
+        $this->testMineViewItemEventsDedupedAfterSearchRender();
         $this->testCsrfTokenSupportsMultipleOpenPages();
         $this->testNavbarClickFocusStyleDoesNotStick();
         $this->testHomeStatsUseLightCardColors();
@@ -239,6 +241,47 @@ class FileManagerTest
 ";
     }
 
+    private function testMineViewToolbarDesktopLayoutContract()
+    {
+        echo "--- 我的文件桌面工具栏布局契约 ---\n";
+        $view = file_get_contents(__DIR__ . '/../includes/mine_view.php');
+
+        $toolbarPos = strpos($view, '<div class="mine-toolbar">');
+        $breadcrumbRowPos = strpos($view, '<div class="mine-toolbar-breadcrumb-row">');
+        $breadcrumbPos = strpos($view, '<div class="mine-breadcrumb" id="breadcrumb">');
+        $actionsRowPos = strpos($view, '<div class="mine-toolbar-actions-row pull-right mine-toolbar-actions">');
+        $searchPos = strpos($view, '<div class="input-group input-group-sm mine-search">');
+        $uploadPos = strpos($view, 'openUploadModal()');
+
+        $this->assert(strpos($view, '.mine-toolbar { margin-bottom: 15px; }') !== false, '工具栏容器不应再把面包屑和操作区放在同一行 flex 中');
+        $this->assert(strpos($view, '.mine-toolbar-breadcrumb-row { margin-bottom: 10px; }') !== false, '第一行应专门承载面包屑并与第二行保持间距');
+        $this->assert(strpos($view, '.mine-breadcrumb { background: #f5f5f5; padding: 8px 15px; border-radius: 4px; display: block; width: 100%; }') !== false, '面包屑应独占第一行宽度');
+        $this->assert(strpos($view, '.mine-toolbar-actions-row { float: none !important; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }') !== false, '第二行操作区应使用 flex 且 align-items:center 保证上下居中');
+        $this->assert(strpos($view, '.mine-search { flex: 0 0 260px; max-width: 100%; }') !== false, '桌面端搜索框应保持稳定宽度并限制最大宽度');
+        $this->assert(strpos($view, '.mine-search .form-control, .mine-search .input-group-btn .btn { height: 30px; }') !== false, '搜索输入框与搜索按钮应保持相同高度');
+        $this->assert(strpos($view, '.mine-toolbar-actions > .btn, .mine-search .input-group-btn .btn { height: 30px; display: inline-flex; align-items: center; justify-content: center; }') !== false, '操作按钮和搜索按钮应等高且内容垂直居中');
+        $this->assert(strpos($view, '.mine-search { flex: 1 1 100%; width: 100%; }') !== false, '移动端搜索框应独占一行适配窄屏');
+        $this->assert(strpos($view, 'function filterMineItemsByKeyword') !== false, '搜索框应复用前端当前列表过滤，不新增后端接口范围');
+        $this->assert(strpos($view, "url += '&kw='") === false, '搜索位置修复不应让 listMine 或长轮询新增 kw 后端参数');
+        $this->assert($toolbarPos !== false && $breadcrumbRowPos !== false && $breadcrumbPos !== false && $actionsRowPos !== false && $toolbarPos < $breadcrumbRowPos && $breadcrumbRowPos < $breadcrumbPos && $breadcrumbPos < $actionsRowPos, 'DOM 应先渲染第一行面包屑，再渲染第二行操作区');
+        $this->assert($actionsRowPos !== false && $searchPos !== false && $uploadPos !== false && $actionsRowPos < $searchPos && $searchPos < $uploadPos, '搜索框应归属于第二行操作区并位于上传按钮之前');
+        echo "\n";
+    }
+
+    private function testMineViewItemEventsDedupedAfterSearchRender()
+    {
+        echo "--- 我的文件搜索重绘事件去重契约 ---\n";
+        $view = file_get_contents(__DIR__ . '/../includes/mine_view.php');
+
+        $this->assert(substr_count($view, 'renderCurrentItems();') >= 2, '搜索与清空搜索会触发当前列表重新渲染');
+        $this->assert(strpos($view, 'renderItems(folders, files);') !== false, '当前列表重绘应复用 renderItems');
+        $this->assert(strpos($view, "$('#itemList').off('dblclick', '.folder-item').on('dblclick', '.folder-item'") !== false, 'PC 文件夹双击事件应先解绑再绑定，避免搜索重绘后重复进入目录');
+        $this->assert(strpos($view, "$('#itemList').off('click', '.file-item').on('click', '.file-item'") !== false, 'PC 文件单击事件应先解绑再绑定，避免搜索重绘后重复打开文件');
+        $this->assert(strpos($view, "$('#itemList').off('contextmenu', '.folder-item').on('contextmenu', '.folder-item'") !== false, 'PC 文件夹右键事件应先解绑再绑定，避免搜索重绘后重复弹出菜单');
+        $this->assert(strpos($view, "$('#itemList').off('contextmenu', '.file-item').on('contextmenu', '.file-item'") !== false, 'PC 文件右键事件应先解绑再绑定，避免搜索重绘后重复弹出菜单');
+        echo "\n";
+    }
+
     private function testCsrfTokenSupportsMultipleOpenPages()
     {
         echo "--- 多标签页 CSRF token 兼容 ---\n";
@@ -271,7 +314,7 @@ class FileManagerTest
     {
         echo "--- 首页统计卡片企业样式 ---\n";
         $home = file_get_contents(__DIR__ . '/../index_home.php');
-        $this->assert(strpos($home, 'home-page-title') !== false, '首页应提供企业工作台标题区域');
+        $this->assert(strpos($home, 'home-page-title') !== false, '首页应提供网盘概览标题区域');
         $this->assert(strpos($home, 'background: #fff; border-radius: 12px') !== false, '统计卡片应使用白底企业卡片样式');
         $this->assert(strpos($home, 'border: 1px solid #e5e7eb') !== false, '首页卡片应使用低饱和边框');
         $this->assert(strpos($home, 'color: #111827') !== false, '统计数字应使用专业深色文本');

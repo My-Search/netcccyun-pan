@@ -4,76 +4,23 @@ $is_file = false;
 $csrf_token = createCsrfToken();
 include SYSTEM_ROOT.'header.php';
 ?>
-<style>
-.mine-toolbar { margin-bottom: 15px; }
-.mine-breadcrumb { background: #f5f5f5; padding: 8px 15px; border-radius: 4px; display: inline-block; }
-.mine-breadcrumb a { color: #337ab7; cursor: pointer; }
-.item-grid { display: flex; flex-wrap: wrap; gap: 10px; }
-.item-card { width: 120px; text-align: center; padding: 10px; border-radius: 4px; cursor: pointer; position: relative; user-select: none; -webkit-touch-callout: none; -webkit-user-select: none; }
-.item-card:hover { background: #f0f0f0; }
-.item-card .icon-wrap { font-size: 48px; height: 56px; display: flex; align-items: center; justify-content: center; pointer-events: none; }
-.item-card .item-name { margin-top: 5px; font-size: 12px; word-break: break-all; line-height: 1.3; max-height: 32px; overflow: hidden; pointer-events: none; }
-.item-card .item-remark { margin-top: 3px; font-size: 11px; color: #8a6d3b; line-height: 1.25; max-height: 28px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; pointer-events: none; }
-.item-card.drag-over { background: #d9edf7 !important; outline: 2px dashed #337ab7; }
-.item-card.file-item { cursor: grab; }
-.item-card.file-item:active { cursor: grabbing; }
-.item-card.folder-item { cursor: grab; }
-.item-card.folder-item:active { cursor: grabbing; }
-.item-card .fa-folder { color: #f0ad4e; }
-.item-card .fa-file-image-o { color: #5cb85c; }
-.item-card .fa-file-audio-o { color: #5bc0de; }
-.item-card .fa-file-video-o { color: #d9534f; }
-.item-card .fa-file-archive-o { color: #f0ad4e; }
-.item-card .fa-file-text-o { color: #777; }
-.item-card .fa-file-o { color: #999; }
-.context-menu { position: absolute; z-index: 9999; background: #fff; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: none; min-width: 120px; }
-.context-menu a { display: block; padding: 8px 15px; color: #333; text-decoration: none; }
-.context-menu a:hover { background: #f5f5f5; }
-/* 移动端底部菜单 */
-.mobile-menu-list { padding: 10px 0; }
-.mobile-menu-item { padding: 14px 20px; font-size: 15px; color: #333; text-align: center; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
-.mobile-menu-item:last-of-type { border-bottom: none; }
-.mobile-menu-item:active { background: #f5f5f5; }
-.mobile-menu-danger { color: #d9534f !important; }
-.mobile-menu-cancel { padding: 14px 20px; font-size: 15px; color: #999; text-align: center; cursor: pointer; margin-top: 8px; border-top: 1px solid #f0f0f0; }
-.mobile-menu-cancel:active { background: #f5f5f5; }
-/* 触摸拖拽幽灵 */
-.drag-ghost { position: fixed; z-index: 10000; pointer-events: none; opacity: 0.85; box-shadow: 0 4px 15px rgba(0,0,0,0.2); border-radius: 8px; background: #fff; transform: scale(1.05); }
-.drag-ghost .icon-wrap { font-size: 40px; height: 48px; }
-.drag-ghost .item-name { font-size: 11px; }
-.upload-dropzone { border: 2px dashed #ccc; border-radius: 8px; padding: 40px; text-align: center; color: #999; transition: all 0.3s; }
-.upload-dropzone.dragover { border-color: #337ab7; background: #f0f8ff; color: #337ab7; }
-.upload-queue { max-height: 300px; overflow-y: auto; margin-top: 15px; }
-.upload-queue-item { display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #eee; transition: background 0.3s; }
-.upload-queue-item .progress { flex: 1; margin: 0 10px; height: 8px; margin-bottom: 0; }
-.upload-queue-item .status { width: 60px; text-align: right; font-size: 12px; }
-/* 移动到 - 树形选择器样式 */
-.move-tree { max-height: 320px; overflow: auto; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #fafafa; }
-.move-tree-item { padding: 0; cursor: pointer; border-radius: 3px; transition: background 0.2s; white-space: nowrap; }
-.move-tree-item:hover { background: #e8e8e8; }
-.move-tree-item.selected { background: #337ab7; color: #fff; }
-.move-tree-item.selected .move-tree-icon { color: #fff; }
-.move-tree-item.selected .move-tree-toggle { color: #fff; }
-.move-tree-node { display: flex; align-items: center; padding: 6px 8px; }
-.move-tree-toggle { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-size: 10px; color: #666; margin-right: 4px; flex-shrink: 0; }
-.move-tree-toggle:hover { color: #333; }
-.move-tree-toggle.empty { visibility: hidden; }
-.move-tree-children { padding-left: 20px; display: none; }
-.move-tree-children.expanded { display: block; }
-.move-tree-icon { margin-right: 6px; color: #f0ad4e; flex-shrink: 0; }
-.move-tree-node span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.move-tree-quick-btns { margin-bottom: 15px; }
-.move-tree-quick-btns .btn { margin-right: 8px; margin-bottom: 8px; }
-.move-tree-current { padding: 10px; background: #f5f5f5; border-radius: 4px; margin-bottom: 15px; font-weight: 500; }
-.move-tree-current .name { color: #337ab7; }
-</style>
+<link rel="stylesheet" href="./assets/css/mine.css?v=<?php echo VERSION?>">
 
 <div class="container" id="mineApp">
     <div class="mine-toolbar">
-        <div class="mine-breadcrumb" id="breadcrumb">
-            <a onclick="loadFolder(0)">根目录</a>
+        <div class="mine-toolbar-breadcrumb-row">
+            <div class="mine-breadcrumb" id="breadcrumb">
+                <a onclick="loadFolder(0)">根目录</a>
+            </div>
         </div>
-        <div class="pull-right">
+        <div class="mine-toolbar-actions-row pull-right mine-toolbar-actions">
+            <div class="input-group input-group-sm mine-search">
+                <input type="text" class="form-control" id="mineSearchKw" placeholder="搜索文件/文件夹">
+                <span class="input-group-btn">
+                    <button class="btn btn-default" type="button" onclick="applyMineSearch()" title="搜索" aria-label="搜索"><i class="fa fa-search"></i></button>
+                    <button class="btn btn-default" type="button" onclick="clearMineSearch()" title="清空搜索" aria-label="清空搜索"><i class="fa fa-times"></i></button>
+                </span>
+            </div>
             <button class="btn btn-sm btn-success" onclick="openUploadModal()"><i class="fa fa-cloud-upload"></i> 上传文件</button>
             <button class="btn btn-sm btn-warning" onclick="createUploadInvite()"><i class="fa fa-user-plus"></i> 邀请上传</button>
             <button class="btn btn-sm btn-primary" onclick="createNewFolder()"><i class="fa fa-folder"></i> 新建文件夹</button>
@@ -102,6 +49,7 @@ var currentFolderId = 0;
 var currentData = {folders:[], files:[]};
 var siteurl = '<?php echo $siteurl; ?>';
 var currentFilterType = '';
+var currentSearchKw = '';
 var uploadRefreshTimer = null;
 var folderLoadRequest = null;
 var folderWatchTimer = null;
@@ -127,15 +75,29 @@ function getInitialFolderId(){
     return normalizeFolderId(folderId);
 }
 
+function normalizeSearchKeyword(value){
+    return $.trim(value || '');
+}
+
+function getInitialSearchKw(){
+    return normalizeSearchKeyword(getUrlParam('kw'));
+}
+
 function updateFolderUrl(folder_id, replace){
     if(!window.history || !window.history.pushState) return;
 
     var normalizedFolderId = normalizeFolderId(folder_id);
     var params = new URLSearchParams(window.location.search);
+    var normalizedSearchKw = normalizeSearchKeyword(currentSearchKw);
     if(normalizedFolderId > 0){
         params.set('folder_id', normalizedFolderId);
     }else{
         params.delete('folder_id');
+    }
+    if(normalizedSearchKw){
+        params.set('kw', normalizedSearchKw);
+    }else{
+        params.delete('kw');
     }
     params.delete('folder');
     params.delete('fid');
@@ -158,8 +120,16 @@ function getTypeLabel(type){
 
 $(function(){
     currentFilterType = getUrlParam('type') || '';
+    currentSearchKw = getInitialSearchKw();
+    $('#mineSearchKw').val(currentSearchKw).on('keydown', function(e){
+        if(e.keyCode === 13){
+            applyMineSearch();
+        }
+    });
     loadFolder(getInitialFolderId(), {replaceUrl:true});
     window.addEventListener('popstate', function(){
+        currentSearchKw = getInitialSearchKw();
+        $('#mineSearchKw').val(currentSearchKw);
         loadFolder(getInitialFolderId(), {updateUrl:false});
     });
     $(document).on('click', function(){ $('#contextMenu').hide(); });
@@ -202,9 +172,13 @@ function loadFolder(folder_id, options){
         folderLoadRequest.abort();
     }
     showFolderLoading();
+    currentSearchKw = normalizeSearchKeyword(currentSearchKw);
     var url = 'ajax.php?act=listMine&folder_id='+folder_id;
     if(currentFilterType){
         url += '&type=' + encodeURIComponent(currentFilterType);
+    }
+    if(currentSearchKw){
+        url += '&kw=' + encodeURIComponent(currentSearchKw);
     }
     folderLoadRequest = $.ajax({
         url: url,
@@ -219,11 +193,9 @@ function loadFolder(folder_id, options){
                     updateFolderUrl(currentFolderId, options.replaceUrl === true);
                 }
                 renderBreadcrumb(res.path);
-                renderItems(res.folders, res.files);
+                renderCurrentItems();
                 currentFolderVersion = res.version || '';
                 startFolderWatch();
-                var hasContent = res.folders.length > 0 || res.files.length > 0;
-                $('#emptyTip').toggle(!hasContent);
             }else{
                 $('#itemList').empty();
                 layer.msg(res.msg, {icon:2});
@@ -296,6 +268,21 @@ function checkCurrentFolderVersion(){
     });
 }
 
+function applyMineSearch(){
+    currentSearchKw = normalizeSearchKeyword($('#mineSearchKw').val());
+    $('#mineSearchKw').val(currentSearchKw);
+    updateFolderUrl(currentFolderId);
+    loadFolder(currentFolderId);
+}
+
+function clearMineSearch(){
+    if(!currentSearchKw && !normalizeSearchKeyword($('#mineSearchKw').val())) return;
+    currentSearchKw = '';
+    $('#mineSearchKw').val('');
+    updateFolderUrl(currentFolderId);
+    loadFolder(currentFolderId);
+}
+
 function renderBreadcrumb(path){
     var html = '<a onclick="loadFolder(0)">根目录</a>';
     for(var i=0; i<path.length; i++){
@@ -304,7 +291,33 @@ function renderBreadcrumb(path){
     if(currentFilterType){
         html += ' <span style="color:#999;margin-left:6px;">['+escapeHtml(getTypeLabel(currentFilterType))+']</span>';
     }
+    if(currentSearchKw){
+        html += ' <span style="color:#999;margin-left:6px;">[搜索：'+escapeHtml(currentSearchKw)+']</span>';
+    }
     $('#breadcrumb').html(html);
+}
+
+function filterMineItemsByKeyword(items, keyword){
+    if(!keyword) return items || [];
+    var result = [];
+    items = items || [];
+    for(var i=0; i<items.length; i++){
+        var name = String(items[i].name || '').toLowerCase();
+        if(name.indexOf(keyword) !== -1){
+            result.push(items[i]);
+        }
+    }
+    return result;
+}
+
+function renderCurrentItems(){
+    var keyword = normalizeSearchKeyword(currentSearchKw).toLowerCase();
+    var folders = filterMineItemsByKeyword(currentData.folders, keyword);
+    var files = filterMineItemsByKeyword(currentData.files, keyword);
+    renderItems(folders, files);
+    var hasContent = folders.length > 0 || files.length > 0;
+    $('#emptyTip p').text(keyword ? '没有找到匹配的文件或文件夹' : '该目录下没有文件');
+    $('#emptyTip').toggle(!hasContent);
 }
 
 function renderItems(folders, files){
@@ -333,20 +346,20 @@ function renderItems(folders, files){
 
 function initItemEvents(){
     // PC 端双击打开文件夹
-    $('#itemList').on('dblclick', '.folder-item', function(){
+    $('#itemList').off('dblclick', '.folder-item').on('dblclick', '.folder-item', function(){
         loadFolder($(this).data('folder-id'));
     });
     // PC 端单击打开文件（触摸操作后不触发）
-    $('#itemList').on('click', '.file-item', function(e){
+    $('#itemList').off('click', '.file-item').on('click', '.file-item', function(e){
         if($(this).hasClass('touch-action')) return;
         window.open('./file.php?hash='+$(this).data('file-hash'), '_blank');
     });
     // PC 端右键菜单
-    $('#itemList').on('contextmenu', '.folder-item', function(e){
+    $('#itemList').off('contextmenu', '.folder-item').on('contextmenu', '.folder-item', function(e){
         e.preventDefault();
         folderContextMenu(e, $(this).data('folder-id'), $(this).data('name'));
     });
-    $('#itemList').on('contextmenu', '.file-item', function(e){
+    $('#itemList').off('contextmenu', '.file-item').on('contextmenu', '.file-item', function(e){
         e.preventDefault();
         var $el = $(this);
         fileContextMenu(e, $el.data('file-id'), $el.data('file-hash'), $el.data('name'), $el.data('type'));
@@ -1023,20 +1036,21 @@ function copyShareUrl(){
 }
 
 function createUploadInvite(){
-    var html = '<div style="padding:15px;">';
-    html += '<p>接收位置：<b>'+(currentFolderId > 0 ? '当前目录' : '根目录')+'</b></p>';
-    html += '<p>单文件大小限制（MB）：</p>';
-    html += '<input type="number" id="inviteMaxSizeMb" class="form-control" min="1" value="1024">';
-    html += '<p style="margin-top:12px;">有效时长（小时，0 表示长期有效）：</p>';
-    html += '<input type="number" id="inviteExpireHours" class="form-control" min="0" value="0">';
-    html += '<p style="margin-top:12px;">上传文件备注（可选，上传后显示在文件名下方）：</p>';
-    html += '<textarea id="inviteRemark" class="form-control" maxlength="200" rows="3" placeholder="例如：请上传本次报销凭证"></textarea>';
-    html += '<p style="margin-top:10px; color:#999; font-size:12px;">默认限制为 1024MB（1GB）。文件未上传成功前可反复重试。</p>';
+    var html = '<div class="upload-invite-form">';
+    html += '<p class="upload-invite-location">接收位置：<b>'+(currentFolderId > 0 ? '当前目录' : '根目录')+'</b></p>';
+    html += '<div class="upload-invite-field"><label for="inviteMaxSizeMb">单文件大小限制（MB）：</label>';
+    html += '<input type="number" id="inviteMaxSizeMb" class="form-control" min="1" value="1024"></div>';
+    html += '<div class="upload-invite-field"><label for="inviteExpireHours">有效时长（小时，0 表示长期有效）：</label>';
+    html += '<input type="number" id="inviteExpireHours" class="form-control" min="0" value="0"></div>';
+    html += '<div class="upload-invite-field"><label for="inviteRemark">上传文件备注（可选，上传后显示在文件名下方）：</label>';
+    html += '<textarea id="inviteRemark" class="form-control" maxlength="200" rows="3" placeholder="例如：请上传本次报销凭证"></textarea></div>';
+    html += '<p class="upload-invite-tips">默认限制为 1024MB（1GB）。文件未上传成功前可反复重试。</p>';
     html += '</div>';
     layer.open({
         type: 1,
         title: '邀请上传设置',
         area: ['460px', '440px'],
+        skin: 'upload-invite-layer',
         content: html,
         btn: ['生成邀请', '取消'],
         yes: function(index){
@@ -1056,20 +1070,21 @@ function createUploadInvite(){
                 layer.close(ii);
                 if(res.code == 0){
                     layer.close(index);
-                    var showHtml = '<div style="padding:15px; text-align:center;">';
+                    var showHtml = '<div class="upload-invite-result">';
                     showHtml += '<p>邀请上传链接：</p>';
-                    showHtml += '<div class="input-group" style="margin-bottom:12px;">';
+                    showHtml += '<div class="input-group upload-invite-url-group">';
                     showHtml += '<input type="text" class="form-control" id="uploadInviteUrlInput" readonly value="'+escapeHtml(res.url)+'">';
                     showHtml += '<span class="input-group-btn"><button class="btn btn-primary" onclick="copyUploadInviteUrl()">复制</button></span>';
                     showHtml += '</div>';
-                    showHtml += '<p style="color:#999; font-size:12px;">密码已包含在链接中，对方打开即可上传。</p>';
-                    showHtml += '<p style="color:#999; font-size:12px;">单文件限制：'+maxSizeMb+'MB；有效期：'+(res.expire_time || '长期有效')+'</p>';
-                    if(res.remark){ showHtml += '<p style="color:#8a6d3b; font-size:12px; word-break:break-all;">备注：'+escapeHtml(res.remark)+'</p>'; }
+                    showHtml += '<p class="upload-invite-tips">密码已包含在链接中，对方打开即可上传。</p>';
+                    showHtml += '<p class="upload-invite-tips">单文件限制：'+maxSizeMb+'MB；有效期：'+(res.expire_time || '长期有效')+'</p>';
+                    if(res.remark){ showHtml += '<p class="upload-invite-remark">备注：'+escapeHtml(res.remark)+'</p>'; }
                     showHtml += '</div>';
                     layer.open({
                         type: 1,
                         title: '邀请上传已生成',
                         area: ['520px', '290px'],
+                        skin: 'upload-invite-layer upload-invite-result-layer',
                         content: showHtml
                     });
                 }else{
@@ -1189,8 +1204,15 @@ function initListDropzone(){
 }
 
 /* ========== 上传弹框组件 ========== */
+function getUploadModalArea(){
+    if(window.matchMedia && window.matchMedia('(max-width: 767px)').matches){
+        return ['calc(100vw - 20px)', 'auto'];
+    }
+    return ['600px', '500px'];
+}
+
 function openUploadModal(prefillFiles){
-    var html = '<div style="padding:15px;">';
+    var html = '<div class="upload-modal-body">';
     html += '<div class="upload-dropzone" id="uploadDropzone">';
     html += '<p><i class="fa fa-cloud-upload" style="font-size:36px;"></i></p>';
     html += '<p>拖拽文件或文件夹到此处上传</p>';
@@ -1207,7 +1229,8 @@ function openUploadModal(prefillFiles){
     uploadModalIndex = layer.open({
         type:1,
         title:'上传文件',
-        area:['600px','500px'],
+        area:getUploadModalArea(),
+        skin:'mine-upload-layer',
         content:html,
         success:function(){
             initDropzone();
@@ -1410,7 +1433,7 @@ function handleUploadFiles(files){
 
 function addQueueItem(task){
     var html = '<div class="upload-queue-item" id="uq_'+task.id+'">';
-    html += '<div style="width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="'+escapeHtml(task.name)+'">'+escapeHtml(task.name)+'</div>';
+    html += '<div class="upload-queue-name" title="'+escapeHtml(task.name)+'">'+escapeHtml(task.name)+'</div>';
     html += '<div class="progress"><div class="progress-bar" style="width:0%"></div></div>';
     html += '<div class="status" id="us_'+task.id+'">等待中</div>';
     html += '</div>';
