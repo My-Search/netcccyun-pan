@@ -34,6 +34,7 @@ exit();
 }
 
 include_once(SYSTEM_ROOT."functions.php");
+include_once(SYSTEM_ROOT."functions_common.php");
 
 $conf=getAllSetting();
 define('SYS_KEY', $conf['syskey']);

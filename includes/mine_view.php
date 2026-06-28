@@ -10,7 +10,7 @@ include SYSTEM_ROOT.'header.php';
     <div class="mine-toolbar">
         <div class="mine-toolbar-breadcrumb-row">
             <div class="mine-breadcrumb" id="breadcrumb">
-                <a onclick="loadFolder(0)">根目录</a>
+                <a onclick="navigateToFolder(0)">根目录</a>
             </div>
         </div>
         <div class="mine-toolbar-actions-row pull-right mine-toolbar-actions">
@@ -19,6 +19,7 @@ include SYSTEM_ROOT.'header.php';
                 <span class="input-group-btn">
                     <button class="btn btn-default" type="button" onclick="applyMineSearch()" title="搜索" aria-label="搜索"><i class="fa fa-search"></i></button>
                     <button class="btn btn-default" type="button" onclick="clearMineSearch()" title="清空搜索" aria-label="清空搜索"><i class="fa fa-times"></i></button>
+                    <button class="btn btn-warning" type="button" id="globalSearchToolbarBtn" onclick="toggleGlobalSearch()" title="退出全局搜索" aria-label="退出全局搜索" style="display:none;"><i class="fa fa-globe"></i> 全局搜索中</button>
                 </span>
             </div>
             <button class="btn btn-sm btn-success" onclick="openUploadModal()"><i class="fa fa-cloud-upload"></i> 上传文件</button>
@@ -34,6 +35,9 @@ include SYSTEM_ROOT.'header.php';
         <div id="emptyTip" style="display:none; text-align:center; padding:40px; color:#999;">
             <i class="fa fa-folder-open-o" style="font-size:48px;"></i>
             <p>该目录下没有文件</p>
+            <div id="globalSearchBtn" style="display:none; margin-top:15px;">
+                <button class="btn btn-info" onclick="toggleGlobalSearch()"><i class="fa fa-globe"></i> 全局搜索</button>
+            </div>
         </div>
     </div>
 </div>
@@ -50,6 +54,7 @@ var currentData = {folders:[], files:[]};
 var siteurl = '<?php echo $siteurl; ?>';
 var currentFilterType = '';
 var currentSearchKw = '';
+var isGlobalSearch = false;
 var uploadRefreshTimer = null;
 var folderLoadRequest = null;
 var folderWatchTimer = null;
@@ -180,6 +185,9 @@ function loadFolder(folder_id, options){
     if(currentSearchKw){
         url += '&kw=' + encodeURIComponent(currentSearchKw);
     }
+    if(isGlobalSearch){
+        url += '&global_search=1';
+    }
     folderLoadRequest = $.ajax({
         url: url,
         type: 'GET',
@@ -189,11 +197,13 @@ function loadFolder(folder_id, options){
             if(res.code == 0){
                 currentData = res;
                 currentFolderId = normalizeFolderId(res.folder_id);
+                isGlobalSearch = res.is_global_search || false;
                 if(options.updateUrl !== false){
                     updateFolderUrl(currentFolderId, options.replaceUrl === true);
                 }
                 renderBreadcrumb(res.path);
                 renderCurrentItems();
+                updateGlobalSearchButton(res.suggest_global, res.is_global_search);
                 currentFolderVersion = res.version || '';
                 startFolderWatch();
             }else{
@@ -271,6 +281,7 @@ function checkCurrentFolderVersion(){
 function applyMineSearch(){
     currentSearchKw = normalizeSearchKeyword($('#mineSearchKw').val());
     $('#mineSearchKw').val(currentSearchKw);
+    isGlobalSearch = false;
     updateFolderUrl(currentFolderId);
     loadFolder(currentFolderId);
 }
@@ -278,15 +289,49 @@ function applyMineSearch(){
 function clearMineSearch(){
     if(!currentSearchKw && !normalizeSearchKeyword($('#mineSearchKw').val())) return;
     currentSearchKw = '';
+    isGlobalSearch = false;
     $('#mineSearchKw').val('');
     updateFolderUrl(currentFolderId);
     loadFolder(currentFolderId);
 }
 
+function toggleGlobalSearch(){
+    if(!currentSearchKw) return;
+    isGlobalSearch = !isGlobalSearch;
+    loadFolder(0);
+}
+
+function updateGlobalSearchButton(suggestGlobal, isGlobal){
+    var $tipBtn = $('#globalSearchBtn');
+    var $toolbarBtn = $('#globalSearchToolbarBtn');
+    if(isGlobal){
+        $tipBtn.show().html('<button class="btn btn-warning" onclick="toggleGlobalSearch()"><i class="fa fa-times"></i> 退出全局搜索</button>');
+        $toolbarBtn.show().html('<i class="fa fa-globe"></i> 全局搜索中');
+        $('#mineSearchKw').attr('placeholder', '全局搜索中...');
+    }else if(suggestGlobal){
+        $tipBtn.show().html('<button class="btn btn-info" onclick="toggleGlobalSearch()"><i class="fa fa-globe"></i> 全局搜索</button>');
+        $toolbarBtn.hide();
+        $('#mineSearchKw').attr('placeholder', '搜索文件/文件夹');
+    }else{
+        $tipBtn.hide();
+        $toolbarBtn.hide();
+        $('#mineSearchKw').attr('placeholder', '搜索文件/文件夹');
+    }
+}
+
+function navigateToFolder(folder_id){
+    // 点击路径项时，取消搜索并清空搜索框
+    currentSearchKw = '';
+    isGlobalSearch = false;
+    $('#mineSearchKw').val('');
+    updateFolderUrl(folder_id);
+    loadFolder(folder_id);
+}
+
 function renderBreadcrumb(path){
-    var html = '<a onclick="loadFolder(0)">根目录</a>';
+    var html = '<a onclick="navigateToFolder(0)">根目录</a>';
     for(var i=0; i<path.length; i++){
-        html += ' / <a onclick="loadFolder('+path[i].id+')">'+escapeHtml(path[i].name)+'</a>';
+        html += ' / <a onclick="navigateToFolder('+path[i].id+')">'+escapeHtml(path[i].name)+'</a>';
     }
     if(currentFilterType){
         html += ' <span style="color:#999;margin-left:6px;">['+escapeHtml(getTypeLabel(currentFilterType))+']</span>';
